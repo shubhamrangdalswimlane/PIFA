@@ -1,0 +1,7 @@
+line-length = 150
+target-version = "py312"
+extend-exclude = ["web", "rules"]
+
+[lint]
+select = ["E", "F", "W", "B", "UP"]
+ignore = ["B008"]  # FastAPI Depends/File/Query defaults

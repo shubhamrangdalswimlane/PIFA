@@ -1,0 +1,72 @@
+# Local stack for the Render-hosted pieces. The SPA (pnpm dev) and API (uvicorn) run on the host.
+#   docker compose up -d --build
+#   .venv/Scripts/python -m uvicorn pifa_api.main:app --port 8000   (API)
+#   pnpm --dir web dev                                              (SPA on :5173)
+# Users: sm.north … admin, password from PIFA_SEED_PASSWORD (default below).
+
+x-svc-secret: &svc_secret local-svc-secret
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: pifa
+      POSTGRES_USER: pifa
+      POSTGRES_PASSWORD: pifa
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pifa"]
+      interval: 5s
+      retries: 20
+
+  keycloak:
+    build: ./keycloak
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      KC_DB_URL_HOST: postgres
+      KC_DB_URL_DATABASE: pifa
+      KC_DB_USERNAME: pifa
+      KC_DB_PASSWORD: pifa
+      KC_HOSTNAME: http://localhost:8080
+      KC_BOOTSTRAP_ADMIN_USERNAME: kcadmin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: kcadmin
+      PIFA_WEB_ORIGIN: http://localhost:5173
+      PIFA_SEED_PASSWORD: ${PIFA_SEED_PASSWORD:-Pifa!2026}
+      PIFA_SVC_CLIENT_SECRET: *svc_secret
+      PIFA_UPSTREAM_CLIENT_SECRET: local-upstream-secret
+    ports: ["8080:8080"]
+
+  rules:
+    build: ./rules
+    environment:
+      KEYCLOAK_ISSUER: http://localhost:8080/realms/printer-poc
+      KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/printer-poc/protocol/openid-connect/certs
+      ALLOWED_CLIENT: printer-api-svc
+    ports: ["8091:8080"]
+
+  sftp:
+    build: ./sftp
+    environment:
+      SFTP_PUBLIC_KEY: ${SFTP_PUBLIC_KEY:?run scripts/dev_keys.py first}
+    volumes: [sftpdata:/home]
+
+  files:
+    build: ./files-svc
+    depends_on: [sftp]
+    environment:
+      SFTP_HOST: sftp
+      SFTP_PRIVATE_KEY: ${SFTP_PRIVATE_KEY:?run scripts/dev_keys.py first}
+      KEYCLOAK_ISSUER: http://localhost:8080/realms/printer-poc
+      KEYCLOAK_INTERNAL_URL: http://keycloak:8080
+      SVC_CLIENT_ID: printer-api-svc
+      SVC_CLIENT_SECRET: *svc_secret
+      API_URL: http://host.docker.internal:8000
+      POLL_SECONDS: "30"
+    ports: ["8082:8080"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+
+volumes:
+  pgdata:
+  sftpdata:

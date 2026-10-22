@@ -1,0 +1,5 @@
+# esbuild needs its postinstall. allowBuilds = pnpm 11+, onlyBuiltDependencies = pnpm 9/10 (e.g. Vercel).
+allowBuilds:
+  esbuild: true
+onlyBuiltDependencies:
+  - esbuild

@@ -1,0 +1,233 @@
+"""Cycle state machine (Arch §5): stage transitions shared by user actions and Admin overrides."""
+
+from psycopg import Connection
+
+from . import clients, store
+from .auth import User
+from .domain import REGIONS, STAGES, conflict
+
+
+def cycle_view(conn: Connection) -> dict:
+    cycle = store.current_cycle(conn)
+    cid = cycle["id"]
+    fv = conn.execute("SELECT region, version_no, status FROM forecast_version WHERE cycle_id = %s", (cid,)).fetchall()
+    forecast = {r: {"v1": None, "v2": None} for r in REGIONS}
+    for row in fv:
+        forecast[row["region"]][f"v{row['version_no']}"] = row["status"]
+    av = conn.execute("SELECT version_no, status FROM allocation_version WHERE cycle_id = %s", (cid,)).fetchall()
+    allocation = {"v1": None, "v2": None, "final": None}
+    for row in av:
+        allocation["final" if row["version_no"] == "final" else f"v{row['version_no']}"] = row["status"]
+    conf = store.confirmations(conn, cid)
+    confirmations = {
+        r: ({"by": conf[r]["confirmed_by"], "at": conf[r]["confirmed_at"].isoformat()} if r in conf else None)
+        for r in REGIONS
+    }
+    return {
+        "id": cid,
+        "name": cycle["name"],
+        "stage": cycle["stage"],
+        "stageKey": STAGES[cycle["stage"]],
+        "forecast": forecast,
+        "allocation": allocation,
+        "confirmations": confirmations,
+        "nextActor": _next_actor(cycle["stage"], forecast, confirmations),
+    }
+
+
+def _next_actor(stage: int, forecast: dict, confirmations: dict) -> str:
+    if stage == 1:
+        waiting = [r for r in REGIONS if forecast[r]["v1"] != "submitted"]
+        return f"Sales Managers: {', '.join(waiting)}" if waiting else "Regional Managers"
+    if stage == 2:
+        resubmit = [r for r in REGIONS if forecast[r]["v1"] == "rejected"]
+        review = [r for r in REGIONS if forecast[r]["v1"] == "submitted" and forecast[r]["v2"] != "approved"]
+        parts = []
+        if review:
+            parts.append(f"Regional Managers: {', '.join(review)}")
+        if resubmit:
+            parts.append(f"Sales Managers (resubmit): {', '.join(resubmit)}")
+        return "; ".join(parts) or "Planner"
+    if stage == 3:
+        return "Planner"
+    if stage == 4:
+        waiting = [r for r in REGIONS if confirmations[r] is None]
+        return f"Regional Managers: {', '.join(waiting)}" if waiting else "Head of Sales"
+    if stage == 5:
+        return "Head of Sales"
+    return "Published: no further action"
+
+
+def require_stage(cycle: dict, *stages: int) -> None:
+    if cycle["stage"] not in stages:
+        allowed = " or ".join(STAGES[s] for s in stages)
+        raise conflict(f"Not allowed at stage {STAGES[cycle['stage']]}; requires {allowed}")
+
+
+def _advance(conn: Connection, cycle: dict, to_stage: int, user: User | None, comment: str) -> None:
+    store.set_stage(conn, cycle["id"], to_stage)
+    cycle["stage"] = to_stage
+    store.audit(conn, user, "workflow", cycle_id=cycle["id"], region=None, version=STAGES[to_stage],
+                comment=comment, status="stage")
+
+
+# --- forecast (stages 1-2) -----------------------------------------------------------------------
+
+def submit_forecast(conn: Connection, cycle: dict, region: str, user: User, comment: str) -> None:
+    v1 = store.ensure_forecast_version(conn, cycle["id"], region, 1)
+    rev_no = v1["rev_no"]
+    if rev_no is None:  # submitted without any saved edit: snapshot it so the submitted version has a number
+        rev_no = store.create_revision(conn, cycle["id"], region, v1, user, source="submit", comment=comment, changed=0)
+    store.set_forecast_status(conn, v1["id"], "submitted", user.username)
+    store.set_submitted_rev(conn, v1["id"], rev_no)
+    # The Regional Manager starts from the Sales Manager's final (submitted) version.
+    v2 = store.ensure_forecast_version(conn, cycle["id"], region, 2)
+    store.copy_forecast(conn, v1["id"], v2["id"])
+    store.set_forecast_status(conn, v2["id"], "draft", user.username)
+    store.set_version_rev(conn, v2["id"], rev_no)
+    store.audit(conn, user, "forecast", cycle_id=cycle["id"], region=region, version=f"V{rev_no}", comment=comment, status="submitted")
+    if cycle["stage"] == 1 and _all_forecast(conn, cycle["id"], 1, "submitted"):
+        _advance(conn, cycle, 2, user, "All four regions submitted forecast V1")
+
+
+def approve_forecast(conn: Connection, cycle: dict, region: str, user: User, comment: str) -> None:
+    v2 = store.forecast_version(conn, cycle["id"], region, 2)
+    store.set_forecast_status(conn, v2["id"], "approved", user.username)
+    store.audit(conn, user, "forecast", cycle_id=cycle["id"], region=region, version=f"V{v2['rev_no']}", comment=comment, status="approved")
+    if _all_forecast(conn, cycle["id"], 2, "approved"):
+        _advance(conn, cycle, 3, user, "All four regions approved forecast V2")
+
+
+def reject_forecast(conn: Connection, cycle: dict, region: str, user: User, comment: str) -> None:
+    v1 = store.forecast_version(conn, cycle["id"], region, 1)
+    v2 = store.forecast_version(conn, cycle["id"], region, 2)
+    store.set_forecast_status(conn, v1["id"], "rejected", user.username)
+    store.set_forecast_status(conn, v2["id"], "rejected", user.username)
+    store.audit(conn, user, "forecast", cycle_id=cycle["id"], region=region, version=f"V{v2['rev_no']}", comment=comment, status="rejected")
+
+
+def _all_forecast(conn: Connection, cycle_id: int, version_no: int, status: str) -> bool:
+    row = conn.execute(
+        "SELECT count(*) AS n FROM forecast_version WHERE cycle_id = %s AND version_no = %s AND status = %s",
+        (cycle_id, version_no, status),
+    ).fetchone()
+    return row["n"] == len(REGIONS)
+
+
+# --- allocation (stages 3-5) ---------------------------------------------------------------------
+
+def allocation_models(conn: Connection, cycle_id: int, alloc: store.AllocMap, demand_version: int = 2) -> list[dict]:
+    """Facts for Drools: one entry per product with inventory, demand and allocation per region."""
+    names = store.product_names(conn)
+    snap = store.inventory_snapshot(conn, cycle_id)
+    inventory = store.inventory_lines(conn, snap["id"] if snap else None)
+    demand = store.forecast_totals(conn, cycle_id, demand_version)
+    return [
+        {
+            "product": name,
+            "inventory": inventory.get(pid, 0),
+            "demand": {r: demand.get(r, {}).get(pid, 0) for r in REGIONS},
+            "allocated": {r: alloc[r].get(pid, 0) for r in REGIONS},
+        }
+        for pid, name in names.items()
+    ]
+
+
+def validate_allocation(conn: Connection, cycle_id: int, alloc: store.AllocMap) -> None:
+    """R-ALLOC-02 via Drools: no model may be allocated above available inventory."""
+    clients.enforce(
+        "allocation",
+        {"mode": "VALIDATE", "config": store.get_rule_config(conn), "models": allocation_models(conn, cycle_id, alloc)},
+        "Allocation exceeds available inventory",
+    )
+
+
+def submit_allocation(conn: Connection, cycle: dict, user: User, comment: str) -> None:
+    v1 = store.ensure_allocation_version(conn, cycle["id"], "1")
+    validate_allocation(conn, cycle["id"], store.allocation_lines(conn, v1["id"]))
+    store.set_allocation_status(conn, v1["id"], "approved")
+    v2 = store.ensure_allocation_version(conn, cycle["id"], "2")
+    store.copy_allocation(conn, v1["id"], v2["id"])
+    store.set_allocation_status(conn, v2["id"], "draft")
+    store.clear_confirmations(conn, cycle["id"])
+    store.audit(conn, user, "allocation", cycle_id=cycle["id"], region=None, version="V1", comment=comment, status="approved")
+    _advance(conn, cycle, 4, user, "Planner approved allocation V1")
+
+
+def confirm_region(conn: Connection, cycle: dict, region: str, user: User, comment: str) -> None:
+    conn.execute(
+        """INSERT INTO region_confirmation (cycle_id, region, confirmed_by) VALUES (%s, %s, %s)
+           ON CONFLICT (cycle_id, region) DO UPDATE SET confirmed_by = EXCLUDED.confirmed_by, confirmed_at = now()""",
+        (cycle["id"], region, user.username),
+    )
+    store.audit(conn, user, "allocation", cycle_id=cycle["id"], region=region, version="V2", comment=comment, status="confirmed")
+    if len(store.confirmations(conn, cycle["id"])) == len(REGIONS):
+        _advance(conn, cycle, 5, user, "All four regions confirmed allocation V2")
+
+
+def publish(conn: Connection, cycle: dict, user: User, comment: str) -> None:
+    v2 = store.allocation_version(conn, cycle["id"], "2")
+    alloc = store.allocation_lines(conn, v2["id"])
+    validate_allocation(conn, cycle["id"], alloc)
+    final = store.ensure_allocation_version(conn, cycle["id"], "final")
+    store.copy_allocation(conn, v2["id"], final["id"])
+    store.set_allocation_status(conn, final["id"], "published")
+    store.set_allocation_status(conn, v2["id"], "approved")
+    # Transfers the Head did not decide one by one are approved together with the allocation.
+    conn.execute(
+        """UPDATE transfer_request SET status = 'approved', decided_by = %s, decided_at = now(),
+                  decision_comment = 'Approved with the published allocation'
+           WHERE cycle_id = %s AND status = 'pending'""",
+        (user.username, cycle["id"]),
+    )
+    store.record_approval(conn, cycle["id"], "allocation", "APPROVE", comment, user)
+    store.audit(conn, user, "approval", cycle_id=cycle["id"], region=None, version="FINAL", comment=comment, status="published")
+    _advance(conn, cycle, 6, user, "Head of Sales approved and published the allocation")
+
+
+def reject_final(conn: Connection, cycle: dict, user: User, comment: str) -> None:
+    store.record_approval(conn, cycle["id"], "allocation", "REJECT", comment, user)
+    store.clear_confirmations(conn, cycle["id"])
+    store.audit(conn, user, "approval", cycle_id=cycle["id"], region=None, version="V2", comment=comment, status="rejected")
+    _advance(conn, cycle, 4, user, "Head of Sales rejected; back to regional change")
+
+
+# --- Admin overrides (FR-A2), each one audited ---------------------------------------------------
+
+def admin_advance(conn: Connection, cycle: dict, user: User, comment: str) -> None:
+    stage = cycle["stage"]
+    store.audit(conn, user, "workflow", cycle_id=cycle["id"], region=None, version=STAGES[stage], comment=comment, status="override")
+    if stage == 1:
+        for r in REGIONS:
+            v1 = store.forecast_version(conn, cycle["id"], r, 1)
+            if v1 is None or v1["status"] != "submitted":
+                submit_forecast(conn, cycle, r, user, f"Admin override: {comment}")
+        if cycle["stage"] == 1:
+            _advance(conn, cycle, 2, user, f"Admin override: {comment}")
+    elif stage == 2:
+        for r in REGIONS:
+            v1 = store.forecast_version(conn, cycle["id"], r, 1)
+            if v1 is None or v1["status"] != "submitted":
+                submit_forecast(conn, cycle, r, user, f"Admin override: {comment}")
+            v2 = store.forecast_version(conn, cycle["id"], r, 2)
+            if v2["status"] != "approved":
+                approve_forecast(conn, cycle, r, user, f"Admin override: {comment}")
+    elif stage == 3:
+        submit_allocation(conn, cycle, user, f"Admin override: {comment}")
+    elif stage == 4:
+        done = store.confirmations(conn, cycle["id"])
+        for r in REGIONS:
+            if r not in done:
+                confirm_region(conn, cycle, r, user, f"Admin override: {comment}")
+    elif stage == 5:
+        raise conflict("Only the Head of Sales can approve the final allocation (R-APPR-01)")
+    else:
+        raise conflict("Cycle is already published; use reset to start a new cycle")
+
+
+def admin_reset(conn: Connection, user: User, comment: str) -> dict:
+    cycle = conn.execute(
+        "INSERT INTO cycle (name, stage) VALUES ('Cycle ' || to_char(now(), 'YYYY-MM-DD HH24:MI'), 1) RETURNING *"
+    ).fetchone()
+    store.audit(conn, user, "workflow", cycle_id=cycle["id"], region=None, version=STAGES[1], comment=comment, status="reset")
+    return cycle

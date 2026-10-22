@@ -1,0 +1,117 @@
+# Render Blueprint: everything Vercel cannot host (Phase.md §0).
+# Deploy: Render Dashboard → New → Blueprint → pick this repo. Fill the `sync: false` values when prompted.
+# Keep all services and the database in the same region; set Vercel's function region to match (iad1 for virginia).
+
+databases:
+  - name: pifa-db
+    databaseName: pifa
+    user: pifa
+    plan: basic-256mb
+    region: virginia
+    # Keycloak uses schema `public`; the API creates and uses schema `pifa`.
+
+services:
+  # --- Keycloak (OIDC, JWT) ---------------------------------------------------------------------
+  - type: web
+    name: pifa-keycloak
+    runtime: docker
+    region: virginia
+    plan: standard            # Keycloak needs >= 1 GB RAM; free instances sleep
+    dockerContext: ./keycloak
+    dockerfilePath: ./keycloak/Dockerfile
+    healthCheckPath: /realms/printer-poc/.well-known/openid-configuration
+    envVars:
+      - key: PORT
+        value: "8080"
+      - key: KC_DB_URL_HOST
+        fromDatabase: { name: pifa-db, property: host }
+      - key: KC_DB_URL_PORT
+        fromDatabase: { name: pifa-db, property: port }
+      - key: KC_DB_URL_DATABASE
+        fromDatabase: { name: pifa-db, property: database }
+      - key: KC_DB_USERNAME
+        fromDatabase: { name: pifa-db, property: user }
+      - key: KC_DB_PASSWORD
+        fromDatabase: { name: pifa-db, property: password }
+      - key: KC_HOSTNAME
+        sync: false             # https://pifa-keycloak.onrender.com
+      - key: KC_BOOTSTRAP_ADMIN_USERNAME
+        value: kcadmin
+      - key: KC_BOOTSTRAP_ADMIN_PASSWORD
+        generateValue: true
+      - key: PIFA_WEB_ORIGIN
+        sync: false             # https://<your-app>.vercel.app (no trailing slash)
+      - key: PIFA_SEED_PASSWORD
+        sync: false             # initial password of the 11 seeded users
+      - key: PIFA_SVC_CLIENT_SECRET
+        sync: false             # also set on pifa-files and in Vercel (SVC_CLIENT_SECRET)
+      - key: PIFA_UPSTREAM_CLIENT_SECRET
+        sync: false
+
+  # --- Drools rules service ---------------------------------------------------------------------
+  - type: web
+    name: pifa-rules
+    runtime: docker
+    region: virginia
+    plan: starter
+    dockerContext: ./rules
+    dockerfilePath: ./rules/Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "8080"
+      - key: KEYCLOAK_ISSUER
+        sync: false             # https://pifa-keycloak.onrender.com/realms/printer-poc
+      - key: ALLOWED_CLIENT
+        value: printer-api-svc
+
+  # --- files-svc: HTTPS gateway to SFTP, Excel sandbox, inbound poller --------------------------
+  - type: web
+    name: pifa-files
+    runtime: docker
+    region: virginia
+    plan: starter
+    dockerContext: ./files-svc
+    dockerfilePath: ./files-svc/Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "8080"
+      - key: SFTP_HOST
+        fromService: { type: pserv, name: pifa-sftp, property: host }
+      - key: SFTP_PORT
+        value: "22"
+      - key: SFTP_USER
+        value: pifa
+      - key: SFTP_PRIVATE_KEY
+        sync: false             # private half of the key whose public half is SFTP_PUBLIC_KEY
+      - key: SFTP_HOST_KEY
+        sync: false             # optional pin, e.g. "ssh-ed25519 AAAA..." (see README)
+      - key: KEYCLOAK_ISSUER
+        sync: false
+      - key: SVC_CLIENT_ID
+        value: printer-api-svc
+      - key: SVC_CLIENT_SECRET
+        sync: false
+      - key: UPSTREAM_CLIENT_ID
+        value: printer-upstream
+      - key: API_URL
+        sync: false             # https://<your-app>.vercel.app
+      - key: POLL_SECONDS
+        value: "60"
+
+  # --- SFTP (private: reachable only from other Render services) --------------------------------
+  - type: pserv
+    name: pifa-sftp
+    runtime: docker
+    region: virginia
+    plan: starter
+    dockerContext: ./sftp
+    dockerfilePath: ./sftp/Dockerfile
+    disk:
+      name: sftp-data
+      mountPath: /home
+      sizeGB: 1
+    envVars:
+      - key: SFTP_PUBLIC_KEY
+        sync: false             # "ssh-ed25519 AAAA... files-svc"
