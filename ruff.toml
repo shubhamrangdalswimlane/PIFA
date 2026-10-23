@@ -1,6 +1,6 @@
 line-length = 150
 target-version = "py312"
-extend-exclude = ["web", "rules"]
+extend-exclude = ["web"]
 
 [lint]
 select = ["E", "F", "W", "B", "UP"]
