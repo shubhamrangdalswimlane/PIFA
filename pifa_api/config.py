@@ -19,7 +19,6 @@ class Settings(BaseSettings):
     svc_client_id: str = "printer-api-svc"
     svc_client_secret: str = ""
 
-    rules_url: str = "http://localhost:8091"
     files_url: str = "http://localhost:8082"
     http_timeout: float = 10.0
 

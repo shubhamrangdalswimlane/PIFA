@@ -7,6 +7,7 @@ from psycopg import Connection
 from pydantic import BaseModel, Field
 
 from . import clients, db, exports, store, workflow
+from . import rules as business_rules
 from .auth import EVERYONE, READ_ALL, User, current_user, require_role, service_caller
 from .config import get_settings
 from .db import get_db
@@ -252,8 +253,8 @@ def admin_health(user: User = Depends(require_role(ADMIN))):
         out["database"] = {"ok": False, "detail": str(e)[:200]}
     ok, detail = clients.probe(f"{s.realm_base}/.well-known/openid-configuration")
     out["keycloak"] = {"ok": ok, "detail": detail}
-    ok, detail = clients.probe(f"{s.rules_url}/health")
-    out["rules"] = {"ok": ok, "detail": detail}
+    ok, detail = business_rules.self_test()
+    out["rules"] = {"ok": ok, "detail": f"Python rules engine: {detail}"}
     try:
         r = httpx.get(f"{s.files_url}/health", timeout=8)
         body = r.json()

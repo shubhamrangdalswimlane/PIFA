@@ -48,23 +48,6 @@ services:
       - key: PIFA_UPSTREAM_CLIENT_SECRET
         sync: false
 
-  # --- Drools rules service ---------------------------------------------------------------------
-  - type: web
-    name: pifa-rules
-    runtime: docker
-    region: virginia
-    plan: starter
-    dockerContext: ./rules
-    dockerfilePath: ./rules/Dockerfile
-    healthCheckPath: /health
-    envVars:
-      - key: PORT
-        value: "8080"
-      - key: KEYCLOAK_ISSUER
-        sync: false             # https://pifa-keycloak.onrender.com/realms/printer-poc
-      - key: ALLOWED_CLIENT
-        value: printer-api-svc
-
   # --- files-svc: HTTPS gateway to SFTP, Excel sandbox, inbound poller --------------------------
   - type: web
     name: pifa-files

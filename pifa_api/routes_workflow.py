@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api")
 
 class QtyChange(BaseModel):
     productId: int
-    qty: float  # validated as a whole number >= 0 by Drools R-FC-01
+    qty: float  # validated as a whole number >= 0 by rule R-FC-01
 
 
 class ChangeSet(BaseModel):
@@ -93,7 +93,7 @@ def get_forecast(user: User = Depends(require_role(*EVERYONE)), conn: Connection
 
 def apply_forecast_changes(conn: Connection, user: User, region: str, version: int, changes: dict[int, float],
                            comment: str, source: str = "edit", file_name: str | None = None) -> tuple[int, int | None]:
-    """Permission + stage checks, Drools R-FC-01/02, write lines, snapshot a new revision and audit each changed cell.
+    """Permission + stage checks, rules R-FC-01/02, write lines, snapshot a new revision and audit each changed cell.
 
     Returns (changed lines, new revision number or None when nothing changed).
     """

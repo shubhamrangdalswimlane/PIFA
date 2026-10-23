@@ -35,7 +35,7 @@ def invalid(message: str, violations: list | None = None, errors: list | None = 
 
 
 def require_comment(comment: str | None, what: str = "This change") -> str:
-    """R-FC-02 guard applied before any business write (Drools re-checks it)."""
+    """R-FC-02 guard applied before any business write (the business rules re-check it)."""
     if not comment or not comment.strip():
         raise invalid(f"{what} needs a comment", violations=[
             {"ruleId": "R-FC-02", "product": None, "region": None, "message": "A non-empty comment is required"}

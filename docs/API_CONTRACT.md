@@ -1,6 +1,6 @@
 # PIFA — Service Contracts
 
-Single source of truth for the JSON shapes exchanged between the SPA (`web/`), the API (`pifa_api/`, served at `/api` on Vercel), the Drools rules service (`rules/`) and the file service (`files-svc/`).
+Single source of truth for the JSON shapes exchanged between the SPA (`web/`), the API (`pifa_api/`, served at `/api` on Vercel, including the business rules in `pifa_api/rules/`) and the file service (`files-svc/`).
 
 ## Common values
 
@@ -10,7 +10,7 @@ Single source of truth for the JSON shapes exchanged between the SPA (`web/`), t
 - Quantity maps are `{ "<productId>": qty }`; a missing product means 0.
 - Timestamps are ISO-8601 UTC strings.
 - Errors: `{"detail": "message"}` or, for rule/file failures, `{"detail": {"message": "...", "violations": [Violation], "errors": [RowError]}}`.
-  - `401` no/invalid token, `403` role or region not allowed, `409` wrong stage/status, `422` validation or rule violation, `503` dependency (rules/files) unavailable.
+  - `401` no/invalid token, `403` role or region not allowed, `409` wrong stage/status, `422` validation or rule violation, `503` dependency (Keycloak or files-svc) unavailable.
 - `Violation` = `{"ruleId": "R-ALLOC-02", "product": "Model A", "region": "North" | null, "message": "..."}`.
 - `RowError` = `{"row": 3, "message": "..."}`.
 
@@ -106,7 +106,7 @@ The Regional Manager edits their region (`PUT ?version=2`) throughout stage 2, a
 }
 ```
 
-`POST /api/allocation/auto` `{"comment": "...", "basis": 2}` — Planner, stage 3. Runs Drools R-ALLOC-01 on forecast V`basis` (default 2) and inventory, writes Allocation V1 (draft). → `{"v1": {...}, "violations": []}`
+`POST /api/allocation/auto` `{"comment": "...", "basis": 2}` — Planner, stage 3. Runs rule R-ALLOC-01 on forecast V`basis` (default 2) and inventory, writes Allocation V1 (draft). → `{"v1": {...}, "violations": []}`
 
 `PUT /api/allocation/v1` `{"changes": [{"productId": 1, "region": "North", "qty": 30}], "comment": "..."}` — Planner, stage 3. → `{"updated": 1}`
 
@@ -186,13 +186,11 @@ Uploads work at **every stage** for the Sales Manager and the Planner. Regional 
 
 ---
 
-## 2. Rules service (`rules/`, Render). Bearer = client-credentials token with `azp == printer-api-svc`.
+## 2. Business rules (`pifa_api/rules/`, Python, called in-process by the API)
 
-`GET /health` (no auth) → `{"status": "UP"}`
+Called as `rules.evaluate(package, payload)`; the payloads and results below are plain dicts. `rules.catalogue()` returns `[{"id", "package", "description"}]` (served at `GET /api/rules/catalogue`). An invalid request (unknown region, mode or sharing) raises `ValueError`, which the API returns as `422`.
 
-`GET /rules/catalogue` → `[{"id", "package", "description"}]`
-
-`POST /rules/forecast`
+`evaluate("forecast", …)`
 ```json
 {
   "changes": [{"entity": "forecast" | "inventory" | "allocation", "product": "Model A", "region": "North" | null, "qty": 12.0, "comment": "...", "isRevision": false}],
@@ -201,7 +199,7 @@ Uploads work at **every stage** for the Sales Manager and the Planner. Regional 
 ```
 → `{"violations": [Violation]}`. Rules: R-FC-01 (whole number ≥ 0), R-FC-02 (comment, and reason for revisions), R-FC-03 (review rejection needs a comment).
 
-`POST /rules/allocation`
+`evaluate("allocation", …)`
 ```json
 {
   "mode": "ALLOCATE" | "VALIDATE",
@@ -213,9 +211,9 @@ Uploads work at **every stage** for the Sales Manager and the Planner. Regional 
 - `ALLOCATE` (R-ALLOC-01): demand ≤ inventory → allocate demand, surplus unallocated. Otherwise with `UNMET_DEMAND`: baseline `floor(inventory × pct / 100)` per region capped at that region's demand, remainder shared in proportion to unmet demand (largest-remainder rounding, ties in region order, never above demand). With `PROPORTIONAL`: share inventory in proportion to demand (largest remainder). `allocated` is ignored.
 - `VALIDATE` (R-ALLOC-02 + R-FC-01): sum of `allocated` per model ≤ inventory; every quantity whole and ≥ 0. `allocations` is empty.
 
-`POST /rules/transfer` `{"transfer": {"product": "Model A", "fromRegion": "East", "toRegion": "North", "qty": 5, "sourceQty": 25, "comment": "..."}}` → `{"violations": [...]}` (R-XFER-01)
+`evaluate("transfer", …)` `{"transfer": {"product": "Model A", "fromRegion": "East", "toRegion": "North", "qty": 5, "sourceQty": 25, "comment": "..."}}` → `{"violations": [...]}` (R-XFER-01)
 
-`POST /rules/approval` `{"request": {"actorRole": "HEAD_OF_SALES", "decision": "APPROVE" | "REJECT", "comment": "...", "stage": 5}}` → `{"violations": [...]}` (R-APPR-01, R-XFER-02: publishing only by Head of Sales at stage 5)
+`evaluate("approval", …)` `{"request": {"actorRole": "HEAD_OF_SALES", "decision": "APPROVE" | "REJECT", "comment": "...", "stage": 5}}` → `{"violations": [...]}` (R-APPR-01, R-XFER-02: publishing only by Head of Sales at stage 5)
 
 ---
 

@@ -117,7 +117,7 @@ def _all_forecast(conn: Connection, cycle_id: int, version_no: int, status: str)
 # --- allocation (stages 3-5) ---------------------------------------------------------------------
 
 def allocation_models(conn: Connection, cycle_id: int, alloc: store.AllocMap, demand_version: int = 2) -> list[dict]:
-    """Facts for Drools: one entry per product with inventory, demand and allocation per region."""
+    """Facts for the business rules: one entry per product with inventory, demand and allocation per region."""
     names = store.product_names(conn)
     snap = store.inventory_snapshot(conn, cycle_id)
     inventory = store.inventory_lines(conn, snap["id"] if snap else None)
@@ -134,7 +134,7 @@ def allocation_models(conn: Connection, cycle_id: int, alloc: store.AllocMap, de
 
 
 def validate_allocation(conn: Connection, cycle_id: int, alloc: store.AllocMap) -> None:
-    """R-ALLOC-02 via Drools: no model may be allocated above available inventory."""
+    """R-ALLOC-02 (business rules): no model may be allocated above available inventory."""
     clients.enforce(
         "allocation",
         {"mode": "VALIDATE", "config": store.get_rule_config(conn), "models": allocation_models(conn, cycle_id, alloc)},

@@ -1,4 +1,4 @@
-"""HTTP clients for Render-hosted services: Drools rules, files-svc and the Keycloak admin API."""
+"""Business rules entry points plus HTTP clients for Render-hosted services: files-svc and the Keycloak admin API."""
 
 import threading
 import time
@@ -6,6 +6,7 @@ import time
 import httpx
 from fastapi import HTTPException
 
+from . import rules as business_rules
 from .config import get_settings
 from .domain import ROLES, invalid
 
@@ -45,13 +46,13 @@ def _call(service: str, method: str, url: str, **kwargs) -> httpx.Response:
     return r
 
 
-# --- Drools rules service (fail closed: no business write without a decision) -----------------
+# --- business rules (Python, in-process; checked before every business write) --------------------
 
 def rules(package: str, payload: dict) -> dict:
-    r = _call("Rules service", "POST", f"{get_settings().rules_url}/rules/{package}", json=payload)
-    if r.status_code >= 400:
-        raise HTTPException(503, f"Rules service rejected the request: {r.text[:300]}")
-    return r.json()
+    try:
+        return business_rules.evaluate(package, payload)
+    except ValueError as e:
+        raise HTTPException(422, f"Invalid rules request: {e}") from e
 
 
 def enforce(package: str, payload: dict, message: str = "Business rule violated") -> dict:
@@ -63,10 +64,7 @@ def enforce(package: str, payload: dict, message: str = "Business rule violated"
 
 
 def rules_catalogue() -> list:
-    r = _call("Rules service", "GET", f"{get_settings().rules_url}/rules/catalogue")
-    if r.status_code >= 400:
-        raise HTTPException(503, f"Rules service error {r.status_code}")
-    return r.json()
+    return business_rules.catalogue()
 
 
 # --- files-svc (SFTP gateway + Excel sandbox) ---------------------------------------------------

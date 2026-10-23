@@ -1,10 +1,10 @@
 # Deploying PIFA (Render + Vercel)
 
-Render runs what Vercel cannot: Keycloak, the Drools rules service, files-svc, the SFTP server and PostgreSQL.
-Vercel runs the React app and the FastAPI API (`/api`). Both deploy from the GitHub repo and redeploy on every push to `main`.
+Render runs what Vercel cannot: Keycloak, files-svc, the SFTP server and PostgreSQL.
+Vercel runs the React app and the FastAPI API (`/api`), which includes the Python business rules. Both deploy from the GitHub repo and redeploy on every push to `main`.
 
 ```
-Browser ──► Vercel: React app + /api (FastAPI) ──► Render: Postgres, Keycloak, rules, files-svc ──► SFTP (private)
+Browser ──► Vercel: React app + /api (FastAPI + rules) ──► Render: Postgres, Keycloak, files-svc ──► SFTP (private)
 ```
 
 Allow about 30–45 minutes. Render services used here are paid instances (free ones sleep and Keycloak needs ≥ 1 GB RAM).
@@ -16,7 +16,7 @@ Allow about 30–45 minutes. Render services used here are paid instances (free 
 1. The code is on GitHub (`main`). Render and Vercel both need access to the repo.
 2. Pick the names now, because each platform needs the other's URL:
    - Vercel project name, e.g. `pifa` → `https://pifa.vercel.app` (if the name is taken Vercel adds a suffix; check after step 3 and fix as in step 4).
-   - Render service names come from `render.yaml`: `pifa-keycloak`, `pifa-rules`, `pifa-files` → `https://<name>.onrender.com` (Render may add a suffix if a name is taken).
+   - Render service names come from `render.yaml`: `pifa-keycloak`, `pifa-files` → `https://<name>.onrender.com` (Render may add a suffix if a name is taken).
 3. Create the secrets (keep them in a password manager, not in Git):
 
 ```bash
@@ -29,7 +29,7 @@ Run it three times: **SVC secret**, **UPSTREAM secret**, and the **seed password
 ```
 This prints the SFTP **public key** and writes the **private key** to `.env` as `SFTP_PRIVATE_KEY="..."` (one line with `\n`). Copy both values.
 
-## 1. Render: database, Keycloak, rules, files-svc, SFTP
+## 1. Render: database, Keycloak, files-svc, SFTP
 
 1. Render Dashboard → **New → Blueprint** → connect GitHub → choose the PIFA repo. Render reads `render.yaml`.
 2. Fill in the values it asks for (`sync: false` entries):
@@ -41,18 +41,16 @@ This prints the SFTP **public key** and writes the **private key** to `.env` as 
 | pifa-keycloak | `PIFA_SEED_PASSWORD` | seed password |
 | pifa-keycloak | `PIFA_SVC_CLIENT_SECRET` | SVC secret |
 | pifa-keycloak | `PIFA_UPSTREAM_CLIENT_SECRET` | UPSTREAM secret |
-| pifa-rules | `KEYCLOAK_ISSUER` | `https://pifa-keycloak.onrender.com/realms/printer-poc` |
-| pifa-files | `KEYCLOAK_ISSUER` | same as above |
+| pifa-files | `KEYCLOAK_ISSUER` | `https://pifa-keycloak.onrender.com/realms/printer-poc` |
 | pifa-files | `SVC_CLIENT_SECRET` | SVC secret (same value) |
 | pifa-files | `SFTP_PRIVATE_KEY` | private key from `.env` (the part inside the quotes) |
 | pifa-files | `SFTP_HOST_KEY` | leave empty for now (optional pinning, see below) |
 | pifa-files | `API_URL` | `https://pifa.vercel.app` |
 | pifa-sftp | `SFTP_PUBLIC_KEY` | public key line (`ssh-ed25519 AAAA… files-svc`) |
 
-3. Click **Apply**. The first Keycloak build and the Java build take several minutes.
+3. Click **Apply**. The first Keycloak build takes several minutes.
 4. When everything is live, check in a browser:
    - `https://pifa-keycloak.onrender.com/realms/printer-poc/.well-known/openid-configuration` → JSON
-   - `https://pifa-rules.onrender.com/health` → `{"status":"UP"}`
    - `https://pifa-files.onrender.com/health` → `"sftp":{"ok":true,...}`
 5. Copy the database URL for Vercel: **pifa-db → Connect → External Database URL**.
 
@@ -69,7 +67,6 @@ If Render gave a service a different URL than you entered, update the variables 
 | `DATABASE_URL` | Render **External** Database URL + `?sslmode=require` |
 | `KEYCLOAK_ISSUER` | `https://pifa-keycloak.onrender.com/realms/printer-poc` |
 | `SVC_CLIENT_SECRET` | SVC secret |
-| `RULES_URL` | `https://pifa-rules.onrender.com` |
 | `FILES_URL` | `https://pifa-files.onrender.com` |
 | `ALLOWED_ORIGINS` | `https://pifa.vercel.app` |
 | `VITE_KEYCLOAK_URL` | `https://pifa-keycloak.onrender.com` |
@@ -105,7 +102,7 @@ Vercel **preview** deployments get their own URLs; add each one you want to log 
 |---|---|
 | Keycloak page says "Invalid parameter: redirect_uri" | `printer-web` redirect URIs don't contain your Vercel URL (step 4). |
 | API returns 401 "Invalid token … issuer" | `KEYCLOAK_ISSUER` differs from the token: must be exactly `https://…onrender.com/realms/printer-poc`, and `KC_HOSTNAME` must be the `https://` URL. |
-| API returns 503 "Rules service" / "File service" | Service still deploying, or `SVC_CLIENT_SECRET` differs between Keycloak, Vercel and pifa-files. |
+| API returns 503 "File service" | pifa-files still deploying, or `SVC_CLIENT_SECRET` differs between Keycloak, Vercel and pifa-files. |
 | Health shows Database red | `DATABASE_URL` is the internal URL or misses `?sslmode=require`. |
 | Health shows SFTP red | Public key on pifa-sftp doesn't match the private key on pifa-files. |
 | Sign-in loops back to the login page | `VITE_KEYCLOAK_URL` wrong or not redeployed after changing it. |

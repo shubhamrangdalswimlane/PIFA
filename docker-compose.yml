@@ -38,14 +38,6 @@ services:
       PIFA_UPSTREAM_CLIENT_SECRET: local-upstream-secret
     ports: ["8080:8080"]
 
-  rules:
-    build: ./rules
-    environment:
-      KEYCLOAK_ISSUER: http://localhost:8080/realms/printer-poc
-      KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/printer-poc/protocol/openid-connect/certs
-      ALLOWED_CLIENT: printer-api-svc
-    ports: ["8091:8080"]
-
   sftp:
     build: ./sftp
     environment:

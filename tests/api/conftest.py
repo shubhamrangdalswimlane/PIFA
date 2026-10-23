@@ -1,4 +1,4 @@
-"""API tests against a real PostgreSQL (TEST_DATABASE_URL) with Keycloak and Drools replaced by fakes."""
+"""API tests against a real PostgreSQL (TEST_DATABASE_URL) and the real Python business rules; Keycloak and files-svc are faked."""
 
 import os
 
@@ -15,7 +15,6 @@ from pifa_api.config import get_settings  # noqa: E402
 from pifa_api.domain import REGIONS  # noqa: E402
 from pifa_api.main import app  # noqa: E402
 
-from .fake_rules import fake_rules  # noqa: E402
 
 
 def make_user(username: str) -> User:
@@ -37,7 +36,6 @@ def fresh_db():
 
 @pytest.fixture()
 def api(fresh_db, monkeypatch):
-    monkeypatch.setattr(clients, "rules", fake_rules)
     monkeypatch.setattr(clients, "export_file", lambda *a, **k: b"PK\x03\x04fake")
     state = {"user": None}
     app.dependency_overrides[current_user] = lambda: state["user"]

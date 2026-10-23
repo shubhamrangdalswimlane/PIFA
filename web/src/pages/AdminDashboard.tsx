@@ -196,7 +196,7 @@ function RuleConfigPanel() {
   const dirty = !!draft && !!cfg.data && (draft.baselinePct !== cfg.data.baselinePct || draft.sharing !== cfg.data.sharing);
 
   return (
-    <Panel title="Allocation rule configuration" subtitle="Passed to Drools R-ALLOC-01 when the Planner auto-allocates.">
+    <Panel title="Allocation rule configuration" subtitle="Used by rule R-ALLOC-01 when the Planner auto-allocates.">
       {cfg.isLoading && <Loading what="rule configuration" />}
       {cfg.error && <QueryError error={cfg.error} />}
       {draft && (
@@ -251,7 +251,7 @@ const HEALTH_LABEL: Record<string, string> = {
   api: 'API (FastAPI)',
   database: 'Database (PostgreSQL)',
   keycloak: 'Keycloak',
-  rules: 'Drools rules',
+  rules: 'Business rules (Python)',
   files: 'File service',
   sftp: 'SFTP',
 };
@@ -293,7 +293,7 @@ function RulesTab() {
   if (rules.isLoading) return <Loading what="rules" />;
   if (rules.error) return <QueryError error={rules.error} />;
   return (
-    <Panel title="Drools rule catalogue">
+    <Panel title="Business rule catalogue">
       <div className="grid-wrap">
         <table className="grid">
           <thead>
