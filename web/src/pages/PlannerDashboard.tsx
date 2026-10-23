@@ -4,7 +4,7 @@ import { useAllocation, useApiMutation, useCycle, useFiles, useForecast, useInve
 import type { ForecastResponse, Product, QtyMap, Violation } from '../api/types';
 import { AuditTable } from '../components/AuditTable';
 import { EditableGrid, type CellChange, type Eff, type GridColumn, type RowTone } from '../components/EditableGrid';
-import { ExportButton, TemplateButton, UploadButton } from '../components/ExcelTools';
+import { ExportButton, UploadButton } from '../components/ExcelTools';
 import { allocationVersionMap, AllocationGrid, type AllocVersion } from '../components/Matrices';
 import { CommentModal, Modal } from '../components/Modal';
 import { ProblemList } from '../components/Toast';
@@ -97,7 +97,6 @@ function InventoryTab() {
         saveTitle="Save inventory changes"
         toolbar={
           <>
-            <TemplateButton kind="inventory" products={ps} current={currentFromQty(ps, lines)} />
             <UploadButton
               kind="inventory"
               products={ps}
@@ -281,7 +280,6 @@ function AllocationTab() {
             onSave={editingV1 ? (changes, comment) => save.mutateAsync({ changes, comment }) : undefined}
             toolbar={
               <>
-                <TemplateButton kind="allocation" products={ps} current={currentFromMatrix(ps, a.v1)} />
                 <UploadButton
                   kind="allocation"
                   products={ps}

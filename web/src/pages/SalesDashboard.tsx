@@ -5,7 +5,7 @@ import type { QtyChange, Rejection } from '../api/types';
 import { useSession } from '../auth/session';
 import { AuditTable } from '../components/AuditTable';
 import { EditableGrid, type CellChange, type GridColumn } from '../components/EditableGrid';
-import { TemplateButton, UploadButton } from '../components/ExcelTools';
+import { UploadButton } from '../components/ExcelTools';
 import { CommentModal } from '../components/Modal';
 import { useToast } from '../components/Toast';
 import { VersionHistory } from '../components/VersionHistory';
@@ -101,7 +101,6 @@ export default function SalesDashboard() {
           saveTitle={`Save as version V${nextRev} — ${region}`}
           toolbar={
             <>
-              <TemplateButton kind="forecast" products={products} current={currentFromQty(products, v1)} filename={`forecast_${region}_template.xlsx`} />
               <UploadButton
                 kind="forecast"
                 region={region}

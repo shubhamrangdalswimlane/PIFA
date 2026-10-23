@@ -7,11 +7,10 @@ import { useSession } from '../auth/session';
 import { AuditTable } from '../components/AuditTable';
 import { TransferList } from '../components/TransferList';
 import type { CellChange } from '../components/EditableGrid';
-import { ExportButton, TemplateButton } from '../components/ExcelTools';
+import { ExportButton } from '../components/ExcelTools';
 import { allocationVersionMap, AllocationGrid, ForecastRegionsGrid, type AllocVersion, type FcVersion } from '../components/Matrices';
 import { CommentModal } from '../components/Modal';
 import { Banner, Empty, Loading, Panel, QueryError, RegionTag, StatusChip, Tabs, VersionSwitch } from '../components/ui';
-import { currentFromQty } from '../lib/excel';
 import { deltaClass, fmtDelta, fmtQty, fmtTime } from '../lib/format';
 
 type Tab = 'forecast' | 'allocation' | 'history';
@@ -169,12 +168,6 @@ function ForecastTab({ region }: { region: Region }) {
           onSave={canEdit && version === 'v2' ? (changes, comment) => save.mutateAsync({ changes, comment }) : undefined}
           toolbar={
             <>
-              <TemplateButton
-                kind="forecast"
-                products={products}
-                current={currentFromQty(products, fc.v2[region] ?? fc.v1[region])}
-                filename={`forecast_${region}_v2_template.xlsx`}
-              />
               <ExportButton kind="forecast" version={version === 'v1' ? '1' : '2'} />
             </>
           }

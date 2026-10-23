@@ -32,22 +32,6 @@ export function valueKeys(kind: FileKind): string[] {
   return kind === 'allocation' ? [...REGIONS] : ['qty'];
 }
 
-/** Generates an .xlsx template prefilled with product names (and current values). */
-export async function downloadTemplate(kind: FileKind, products: Product[], current?: CurrentValues, filename?: string) {
-  const XLSX = await loadXlsx();
-  const keys = valueKeys(kind);
-  const rows: (string | number)[][] = [FILE_COLUMNS[kind]];
-  for (const p of products) {
-    const cur = current?.[String(p.id)];
-    rows.push([p.name, ...keys.map((k) => cur?.[k] ?? 0)]);
-  }
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{ wch: 36 }, ...keys.map(() => ({ wch: 18 }))];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, kind[0].toUpperCase() + kind.slice(1));
-  XLSX.writeFile(wb, filename ?? `${kind}_template.xlsx`);
-}
-
 export interface ParsedRow {
   row: number; // 1-based Excel row number
   name: string;

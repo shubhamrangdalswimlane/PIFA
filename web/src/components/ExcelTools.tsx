@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { api } from '../api/client';
 import { useApiMutation } from '../api/hooks';
 import type { ExportKind, ExportVersion, FileKind, Product, Region } from '../api/types';
-import { downloadTemplate, FILE_COLUMNS, parseWorkbook, valueKeys, type CurrentValues, type ParseResult } from '../lib/excel';
+import { FILE_COLUMNS, parseWorkbook, valueKeys, type CurrentValues, type ParseResult } from '../lib/excel';
 import { deltaClass, fmtDelta, fmtQty } from '../lib/format';
 import { CommentModal } from './Modal';
 import { useToast } from './Toast';
@@ -237,29 +237,6 @@ export function UploadButton({ kind, products, current, region, version, disable
         )}
       </CommentModal>
     </>
-  );
-}
-
-export function TemplateButton({
-  kind,
-  products,
-  current,
-  filename,
-}: {
-  kind: FileKind;
-  products: Product[];
-  current?: CurrentValues;
-  filename?: string;
-}) {
-  const toast = useToast();
-  return (
-    <button
-      className="btn"
-      title="Download an .xlsx template prefilled with product names"
-      onClick={() => downloadTemplate(kind, products, current, filename).catch(toast.error)}
-    >
-      ⇩ Template
-    </button>
   );
 }
 
