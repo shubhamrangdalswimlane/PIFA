@@ -221,9 +221,14 @@ export interface AuditEntry {
   afterQty: number | null;
   comment: string | null;
   status: string | null;
+  /** Month-year the change belongs to ("2026-11" / "Nov 2026"). */
+  period: string | null;
+  periodLabel: string | null;
 }
 
 export interface AuditQuery {
+  /** Omitted = selected month, "all" = every month, "2026-11" = that month. */
+  month?: string;
   role?: string;
   entity?: string;
   region?: string;

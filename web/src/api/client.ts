@@ -199,8 +199,8 @@ export const api = {
     });
   },
   /** Downloads `/export/{kind}` with the bearer token and saves it as a file. */
-  exportFile: async (kind: ExportKind, version?: ExportVersion) => {
-    const res = await rawRequest('GET', `/export/${kind}`, { query: { version } });
+  exportFile: async (kind: ExportKind, version?: ExportVersion, extra?: Query) => {
+    const res = await rawRequest('GET', `/export/${kind}`, { query: { version, ...extra } });
     const blob = await res.blob();
     const cd = res.headers.get('Content-Disposition') ?? '';
     const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd);

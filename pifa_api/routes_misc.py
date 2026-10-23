@@ -107,9 +107,10 @@ def summary(user: User = Depends(require_role(*READ_ALL)), conn: Connection = De
 
 @router.get("/audit")
 def audit(role: str | None = None, entity: str | None = None, region: str | None = None, q: str | None = None,
-          limit: int = Query(500, ge=1, le=5000), user: User = Depends(require_role(*EVERYONE)),
+          month: str | None = None, limit: int = Query(500, ge=1, le=5000), user: User = Depends(require_role(*EVERYONE)),
           conn: Connection = Depends(get_db)):
-    return store.audit_entries(conn, user, role=role, entity=entity, region=region, q=q, limit=limit)
+    """`month`: omitted = selected month, "all" = every month, "2026-11" = that month."""
+    return store.audit_entries(conn, user, role=role, entity=entity, region=region, q=q, limit=limit, month=month)
 
 
 # --- Excel files ---------------------------------------------------------------------------------
@@ -223,12 +224,18 @@ def list_files(user: User = Depends(require_role(PLANNER, HEAD, ADMIN)), conn: C
 
 @router.get("/export/{kind}")
 def export(kind: str, version: str | None = None, region: str | None = None, rev: int | None = None,
-           user: User = Depends(require_role(*EVERYONE)), conn: Connection = Depends(get_db)):
+           month: str | None = None, user: User = Depends(require_role(*EVERYONE)), conn: Connection = Depends(get_db)):
     if kind == "forecast" and rev is not None:
         filename, sheet, cols, rows = exports.revision_table(conn, user, region, rev)
     else:
-        filename, sheet, cols, rows = exports.table(conn, user, kind, version)
-    filename = f"{period.key(store.current_cycle(conn)['period'])}_{filename}"  # e.g. 2026-11_forecast_v1.xlsx
+        filename, sheet, cols, rows = exports.table(conn, user, kind, version, month=month)
+    if month == "all":
+        prefix = "all-months"
+    elif month:
+        prefix = period.key(period.parse(month))
+    else:
+        prefix = period.key(store.current_cycle(conn)["period"])
+    filename = f"{prefix}_{filename}"  # e.g. 2026-11_forecast_v1.xlsx, all-months_audit_trail.xlsx
     content = clients.export_file(filename, sheet, cols, rows)
     return Response(
         content,

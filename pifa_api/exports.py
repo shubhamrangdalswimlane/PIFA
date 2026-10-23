@@ -12,7 +12,7 @@ from .domain import REGIONS, SM, forbidden
 log = logging.getLogger(__name__)
 
 
-def table(conn: Connection, user: User, kind: str, version: str | None) -> tuple[str, str, list, list]:
+def table(conn: Connection, user: User, kind: str, version: str | None, month: str | None = None) -> tuple[str, str, list, list]:
     """(filename, sheet, columns, rows) for an export kind, scoped to what the caller may read."""
     cycle = store.current_cycle(conn)
     names = store.product_names(conn)
@@ -49,9 +49,9 @@ def table(conn: Connection, user: User, kind: str, version: str | None) -> tuple
         return f"allocation_{vno}.xlsx", f"Allocation {label}", ["Product Name", *regions, "Total"], rows
 
     if kind == "audit":
-        entries = store.audit_entries(conn, user, limit=10000)
-        cols = ["Timestamp", "User", "Role", "Region", "Entity", "Version", "Product", "Before", "After", "Comment", "Status"]
-        rows = [[e["ts"], e["username"], e["role"], e["region"], e["entity"], e["version"], e["product"],
+        entries = store.audit_entries(conn, user, limit=10000, month=month)
+        cols = ["Timestamp", "Month", "User", "Role", "Region", "Entity", "Version", "Product", "Before", "After", "Comment", "Status"]
+        rows = [[e["ts"], e["periodLabel"], e["username"], e["role"], e["region"], e["entity"], e["version"], e["product"],
                  e["beforeQty"], e["afterQty"], e["comment"], e["status"]] for e in entries]
         return "audit_trail.xlsx", "Audit", cols, rows
 

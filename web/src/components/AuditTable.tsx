@@ -1,7 +1,8 @@
 import { useDeferredValue, useState } from 'react';
-import { useAudit } from '../api/hooks';
+import { useAudit, usePeriods } from '../api/hooks';
 import { AUDIT_ENTITIES, REGIONS, ROLES, type AuditQuery, type Region } from '../api/types';
 import { deltaClass, fmtDelta, fmtQty, fmtTime, ROLE_LABEL } from '../lib/format';
+import { getPeriod, periodLabel } from '../period';
 import { ExportButton } from './ExcelTools';
 import { Loading, QueryError, StatusChip } from './ui';
 
@@ -20,6 +21,9 @@ export function AuditTable({ fixedRegion, hideRoleFilter, showExport = true, lim
   const [entity, setEntity] = useState('');
   const [region, setRegion] = useState('');
   const [q, setQ] = useState('');
+  const [month, setMonth] = useState(''); // '' = selected month, 'all', or 'YYYY-MM'
+  const periods = usePeriods();
+  const selected = getPeriod();
   const deferredQ = useDeferredValue(q.trim());
 
   const query: AuditQuery = {
@@ -27,6 +31,7 @@ export function AuditTable({ fixedRegion, hideRoleFilter, showExport = true, lim
     entity: entity || undefined,
     region: (fixedRegion ?? region) || undefined,
     q: deferredQ || undefined,
+    month: month || undefined,
     limit,
   };
   const audit = useAudit(query);
@@ -45,6 +50,17 @@ export function AuditTable({ fixedRegion, hideRoleFilter, showExport = true, lim
             ))}
           </select>
         )}
+        <select value={month} onChange={(e) => setMonth(e.target.value)} aria-label="Month filter">
+          <option value="">This month{selected ? ` (${periodLabel(selected)})` : ''}</option>
+          <option value="all">All months</option>
+          {(periods.data ?? [])
+            .filter((p) => p.period !== selected)
+            .map((p) => (
+              <option key={p.period} value={p.period}>
+                {p.label}
+              </option>
+            ))}
+        </select>
         <select value={entity} onChange={(e) => setEntity(e.target.value)} aria-label="Entity filter">
           <option value="">All entities</option>
           {AUDIT_ENTITIES.map((x) => (
@@ -73,7 +89,7 @@ export function AuditTable({ fixedRegion, hideRoleFilter, showExport = true, lim
         />
         <div className="spacer" />
         <span className="muted small">{audit.data ? `${rows.length} entries` : ''}</span>
-        {showExport && <ExportButton kind="audit" label="⇩ Export audit" />}
+        {showExport && <ExportButton kind="audit" label="⇩ Export audit" query={{ month: month || undefined }} />}
       </div>
       {audit.isLoading ? (
         <Loading what="audit" />
@@ -85,6 +101,7 @@ export function AuditTable({ fixedRegion, hideRoleFilter, showExport = true, lim
             <thead>
               <tr>
                 <th>When</th>
+                <th>Month</th>
                 <th>User</th>
                 <th>Role</th>
                 <th>Region</th>
@@ -104,6 +121,7 @@ export function AuditTable({ fixedRegion, hideRoleFilter, showExport = true, lim
                 return (
                   <tr key={e.id}>
                     <td className="nowrap">{fmtTime(e.ts)}</td>
+                    <td className="nowrap">{e.periodLabel ? <span className="version-badge">{e.periodLabel}</span> : '—'}</td>
                     <td>{e.username}</td>
                     <td className="nowrap">{ROLE_LABEL[e.role as keyof typeof ROLE_LABEL] ?? e.role}</td>
                     <td>{e.region ?? '—'}</td>
@@ -120,7 +138,7 @@ export function AuditTable({ fixedRegion, hideRoleFilter, showExport = true, lim
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="empty">
+                  <td colSpan={13} className="empty">
                     No audit entries match.
                   </td>
                 </tr>

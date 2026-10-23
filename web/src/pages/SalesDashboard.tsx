@@ -135,7 +135,7 @@ export default function SalesDashboard() {
       />
 
       <Panel title="My change history" subtitle="Only the changes you made.">
-        <AuditTable fixedRegion={region} hideRoleFilter showExport={false} limit={200} />
+        <AuditTable fixedRegion={region} hideRoleFilter showExport={false} limit={1000} />
       </Panel>
 
       <CommentModal

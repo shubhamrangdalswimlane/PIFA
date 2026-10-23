@@ -254,10 +254,13 @@ export function ExportButton({
   kind,
   version,
   label,
+  query,
 }: {
   kind: ExportKind;
   version?: ExportVersion;
   label?: string;
+  /** Extra query parameters, e.g. { month: 'all' } for the audit export. */
+  query?: Record<string, string | undefined>;
 }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -268,7 +271,7 @@ export function ExportButton({
       onClick={async () => {
         setBusy(true);
         try {
-          await api.exportFile(kind, version);
+          await api.exportFile(kind, version, query);
         } catch (e) {
           toast.error(e);
         } finally {

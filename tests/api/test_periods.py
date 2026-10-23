@@ -102,3 +102,21 @@ def test_upload_into_a_new_selected_month_opens_it(api, files):
     files.rows = [{"product": "Printer Model A", "values": {"qty": 9}}]
     body = upload(api, "forecast", headers={"X-Period": "2027-03"}, region="South").json()
     assert body["periods"][0]["period"] == "2027-03" and body["revision"] == 1
+
+
+def test_change_history_shows_month_and_filters_by_month(api):
+    api.as_("admin")
+    api.post("/api/periods", json={"period": "2026-11"})
+    api.post("/api/periods", json={"period": "2026-12"})
+    api.as_("sm.north")
+    put(api, "North", 10, NOV)
+    put(api, "North", 20, DEC)
+    put(api, "North", 21, DEC)
+
+    nov = api.get("/api/audit", headers=NOV).json()  # default: the selected month
+    assert {(e["period"], e["periodLabel"]) for e in nov} == {("2026-11", "Nov 2026")}
+    assert [e["version"] for e in api.get("/api/audit?month=2026-12", headers=NOV).json() if e["entity"] == "forecast"] == ["V2", "V1"]
+    every = api.get("/api/audit?month=all", headers=NOV).json()
+    assert {e["period"] for e in every} == {"2026-11", "2026-12"} and {e["username"] for e in every} == {"sm.north"}
+    assert api.get("/api/audit?month=not-a-month", headers=NOV).status_code == 422
+    assert api.get("/api/export/audit?month=all", headers=NOV).status_code == 200

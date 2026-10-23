@@ -357,10 +357,19 @@ def get_rule_config(conn: Connection) -> dict:
 # --- audit (append-only) ----------------------------------------------------------------------------
 
 def audit_entries(conn: Connection, user: User, role: str | None = None, entity: str | None = None,
-                  region: str | None = None, q: str | None = None, limit: int = 500) -> list[dict]:
-    """Audit trail for the current cycle (plus cycle-less rows), scoped to the caller's visibility:
-    Sales Manager, Regional Manager and Planner see only their own changes; Head and Admin see all."""
-    where, args = ["(a.cycle_id = %s OR a.cycle_id IS NULL)"], [current_cycle(conn)["id"]]
+                  region: str | None = None, q: str | None = None, limit: int = 500, month: str | None = None) -> list[dict]:
+    """Audit trail scoped to the caller's visibility: Sales Manager, Regional Manager and Planner see only their
+    own changes; Head and Admin see all. `month`: None = the selected month's cycle, "all" = every month,
+    "YYYY-MM" (or any month format) = that month's cycles. Every entry carries its month-year."""
+    if month == "all":
+        where, args = ["TRUE"], []
+    elif month:
+        try:
+            where, args = ["c.period = %s"], [period.parse(month)]
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+    else:
+        where, args = ["(a.cycle_id = %s OR a.cycle_id IS NULL)"], [current_cycle(conn)["id"]]
     if user.own_history_only:
         where.append("a.username = %s")
         args.append(user.username)
@@ -378,7 +387,8 @@ def audit_entries(conn: Connection, user: User, role: str | None = None, entity:
         args += [f"%{q}%"] * 4
     args.append(limit)
     rows = conn.execute(
-        f"""SELECT a.*, p.name AS product FROM audit_log a LEFT JOIN product p ON p.id = a.product_id
+        f"""SELECT a.*, p.name AS product, c.period FROM audit_log a
+            LEFT JOIN product p ON p.id = a.product_id LEFT JOIN cycle c ON c.id = a.cycle_id
             WHERE {' AND '.join(where)} ORDER BY a.id DESC LIMIT %s""",
         args,
     )
@@ -387,6 +397,8 @@ def audit_entries(conn: Connection, user: User, role: str | None = None, entity:
             "id": r["id"], "ts": r["ts"].isoformat(), "username": r["username"], "role": r["role"], "region": r["region"],
             "entity": r["entity"], "version": r["version"], "productId": r["product_id"], "product": r["product"],
             "beforeQty": r["before_qty"], "afterQty": r["after_qty"], "comment": r["comment"], "status": r["status"],
+            "period": period.key(r["period"]) if r["period"] else None,
+            "periodLabel": period.label(r["period"]) if r["period"] else None,
         }
         for r in rows
     ]
