@@ -22,12 +22,34 @@ COLUMNS = {
 
 class FileRejected(Exception):
     def __init__(self, message: str, errors: list[dict] | None = None):
+        """Signal that an uploaded file is rejected as a whole.
+
+        Args:
+            message: Human-readable reason for the rejection.
+            errors: Row errors as `{"row": int, "message": str}` dicts; defaults to a single row-0 error
+                carrying `message`.
+
+        Returns:
+            None
+        """
         super().__init__(message)
         self.errors = errors or [{"row": 0, "message": message}]
 
 
 def check_container(filename: str, content: bytes) -> None:
-    """Size, extension, zip magic bytes, zip-bomb and macro checks before openpyxl touches the file."""
+    """Size, extension, zip magic bytes, zip-bomb and macro checks before openpyxl touches the file.
+
+    Args:
+        filename: Uploaded file name; must end in ".xlsx".
+        content: The raw file bytes.
+
+    Returns:
+        None when the file passes every check.
+
+    Raises:
+        FileRejected: When the file is not .xlsx, is over 4 MB, is not a zip, unzips to more than 50 MB,
+            contains macros (vbaProject), is not an Excel workbook, or is a corrupt zip.
+    """
     if not filename.lower().endswith(".xlsx"):
         raise FileRejected("Only .xlsx files are accepted")
     if len(content) > MAX_BYTES:
@@ -48,6 +70,14 @@ def check_container(filename: str, content: bytes) -> None:
 
 
 def _whole(value) -> int | None:
+    """Read a cell value as a whole number (quantity), accepting ints, whole floats and digit strings.
+
+    Args:
+        value: The raw cell value.
+
+    Returns:
+        The integer value, or None when it is empty, a boolean, fractional or not a number.
+    """
     if isinstance(value, bool) or value is None:
         return None
     if isinstance(value, (int, float)) and float(value).is_integer():
@@ -63,12 +93,29 @@ _MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun",
 
 
 def _norm_header(h) -> str:
-    """'Product_Name', 'product-name ', 'PRODUCT NAME' -> 'product name'."""
+    """'Product_Name', 'product-name ', 'PRODUCT NAME' -> 'product name'.
+
+    Args:
+        h: A header cell value.
+
+    Returns:
+        The header lower-cased, with "_" and "-" turned into spaces and whitespace collapsed.
+    """
     return " ".join(re.sub(r"[_\-]+", " ", str(h)).lower().split())
 
 
 def parse_month(value) -> str:
-    """Month-year cell -> 'YYYY-MM'. Accepts dates and 2026-11, 11/2026, Nov-2026, Nov 2026, November 2026, Nov-26."""
+    """Month-year cell -> 'YYYY-MM'. Accepts dates and 2026-11, 11/2026, Nov-2026, Nov 2026, November 2026, Nov-26.
+
+    Args:
+        value: The Month cell value (date/datetime or text).
+
+    Returns:
+        The month as "YYYY-MM", e.g. "2026-11".
+
+    Raises:
+        ValueError: When the cell is empty, not a recognised month-year, or outside months 1-12 / years 2000-2100.
+    """
     if isinstance(value, datetime | date):
         return f"{value.year:04d}-{value.month:02d}"
     s = str(value or "").strip().lower()
@@ -90,7 +137,23 @@ def parse_month(value) -> str:
 
 def parse(kind: str, content: bytes) -> tuple[list[dict], list[dict]]:
     """Return (rows, errors). Rows: {"row", "product", "values"} plus "month" ("YYYY-MM") when the file has a
-    Month column, so one file can carry several month-years. Any error rejects the whole file."""
+    Month column, so one file can carry several month-years. Any error rejects the whole file.
+
+    Only the first sheet is read, as values (no formulas). The product column may be "Product Name" or
+    "Product_Name"; empty quantity cells count as 0; duplicate products (per month) are errors.
+
+    Args:
+        kind: File kind: "forecast", "inventory" or "allocation" (decides the quantity columns).
+        content: The raw .xlsx bytes (already passed `check_container`).
+
+    Returns:
+        A `(rows, errors)` tuple: rows are `{"row": int, "product": str, "values": {key: int}[, "month": "YYYY-MM"]}`
+        with `values` keyed `qty` (forecast/inventory) or by region (allocation); errors are `{"row": int, "message": str}`.
+
+    Raises:
+        FileRejected: For an unknown kind, an unreadable workbook, an empty first sheet, a missing product or
+            quantity column, or more than MAX_ROWS data rows.
+    """
     if kind not in COLUMNS:
         raise FileRejected(f"Unknown file kind {kind}")
     try:
@@ -156,13 +219,33 @@ def parse(kind: str, content: bytes) -> tuple[list[dict], list[dict]]:
 
 
 def _safe(value):
-    """Neutralise spreadsheet formula injection in exported text cells."""
+    """Neutralise spreadsheet formula injection in exported text cells.
+
+    Args:
+        value: A header or cell value to export.
+
+    Returns:
+        The value prefixed with "'" when it is text starting with =, +, -, @, tab or carriage return;
+        otherwise the value unchanged.
+    """
     if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
         return "'" + value
     return value
 
 
 def build(sheet: str, columns: list[str], rows: list[list]) -> bytes:
+    """Build an export workbook: one sheet with a header row and data rows, formula-injection safe.
+
+    The header row is frozen and column A widened for product names.
+
+    Args:
+        sheet: Sheet name (cut to Excel's 31-character limit; "Sheet1" if empty).
+        columns: Header row labels.
+        rows: Data rows, one list of cell values per row.
+
+    Returns:
+        The .xlsx file as bytes.
+    """
     wb = Workbook()
     ws = wb.active
     ws.title = sheet[:31] or "Sheet1"
@@ -177,4 +260,9 @@ def build(sheet: str, columns: list[str], rows: list[list]) -> bytes:
 
 
 def stamp() -> str:
+    """Current UTC time as a compact timestamp used to prefix stored file names.
+
+    Returns:
+        A string like "20261022T100000" (YYYYMMDDTHHMMSS).
+    """
     return datetime.now(UTC).strftime("%Y%m%dT%H%M%S")

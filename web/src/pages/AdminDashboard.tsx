@@ -11,6 +11,11 @@ import { ROLE_LABEL, STAGES } from '../lib/format';
 
 type Tab = 'users' | 'workflow' | 'health' | 'rules' | 'data' | 'audit';
 
+/**
+ * Admin dashboard: tabs for users, workflow stage control and rule configuration, integration health,
+ * the business rule catalogue, read-only business data and the full audit trail.
+ * @returns the rendered dashboard page
+ */
 export default function AdminDashboard() {
   const [tab, setTab] = useState<Tab>('users');
   return (
@@ -47,6 +52,10 @@ export default function AdminDashboard() {
   );
 }
 
+/**
+ * Read-only list of Keycloak users with name, email, PIFA role, region and enabled flag.
+ * @returns the rendered users panel
+ */
 function UsersTab() {
   const users = useAdminUsers();
   if (users.isLoading) return <Loading what="users" />;
@@ -88,9 +97,18 @@ function UsersTab() {
   );
 }
 
+/**
+ * Workflow control: shows the cycle's stage and per-region forecast / allocation statuses, lets the Admin
+ * force the next stage (up to stage 5; publishing stays with the Head of Sales) or reset to a new cycle,
+ * always with a required comment. Also shows the rule configuration panel.
+ * @returns the rendered workflow panels
+ */
 function WorkflowTab() {
   const cycle = useCycle();
   const [action, setAction] = useState<'advance' | 'reset' | null>(null);
+  /**
+   * Admin override: advances the stage or resets the cycle (comment required).
+   */
   const stage = useApiMutation(
     ({ action, comment }: { action: 'advance' | 'reset'; comment: string }) => api.adminStage(action, comment),
     (c) => `Cycle ${c.name} is now at stage ${c.stage}`,
@@ -184,6 +202,11 @@ function WorkflowTab() {
   );
 }
 
+/**
+ * Edits the auto-allocation rule settings (R-ALLOC-01): baseline % per region (whole number 0–100) and
+ * how the remainder is shared (UNMET_DEMAND or PROPORTIONAL); saving needs a comment.
+ * @returns the rendered configuration panel
+ */
 function RuleConfigPanel() {
   const cfg = useRuleConfig();
   const [draft, setDraft] = useState<RuleConfig | null>(null);
@@ -191,6 +214,9 @@ function RuleConfigPanel() {
   useEffect(() => {
     if (cfg.data) setDraft(cfg.data);
   }, [cfg.data]);
+  /**
+   * Saves the rule configuration (comment required).
+   */
   const save = useApiMutation(({ c, comment }: { c: RuleConfig; comment: string }) => api.putRuleConfig(c, comment), 'Rule configuration saved');
   const pctValid = draft !== null && Number.isInteger(draft.baselinePct) && draft.baselinePct >= 0 && draft.baselinePct <= 100;
   const dirty = !!draft && !!cfg.data && (draft.baselinePct !== cfg.data.baselinePct || draft.sharing !== cfg.data.sharing);
@@ -256,6 +282,10 @@ const HEALTH_LABEL: Record<string, string> = {
   sftp: 'SFTP',
 };
 
+/**
+ * Health cards for the API, database, Keycloak, rules engine, file service and SFTP, with a refresh button.
+ * @returns the rendered health panel
+ */
 function HealthTab() {
   const health = useHealth();
   return (
@@ -288,6 +318,10 @@ function HealthTab() {
   );
 }
 
+/**
+ * Read-only table of the business rules (id, package, description).
+ * @returns the rendered rule catalogue panel
+ */
 function RulesTab() {
   const rules = useRulesCatalogue();
   if (rules.isLoading) return <Loading what="rules" />;

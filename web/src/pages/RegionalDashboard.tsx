@@ -15,6 +15,11 @@ import { deltaClass, fmtDelta, fmtQty, fmtTime } from '../lib/format';
 
 type Tab = 'forecast' | 'allocation' | 'history';
 
+/**
+ * Regional Manager dashboard for their own region: review and revise the forecast (approve / reject the
+ * Sales Manager's submission), confirm the allocation and shift units between regions, and see own change history.
+ * @returns the rendered dashboard page, or a banner when the account has no region
+ */
 export default function RegionalDashboard() {
   const { region } = useSession();
   const [tab, setTab] = useState<Tab>('forecast');
@@ -49,6 +54,13 @@ export default function RegionalDashboard() {
   );
 }
 
+/**
+ * One card per region with its Sales / Regional forecast statuses and the version numbers they are on.
+ * @param props.cycle - workflow state of the selected month
+ * @param props.own - the user's region (highlighted)
+ * @param props.revs - per-region forecast statuses with version numbers
+ * @returns the rendered row of region cards
+ */
 function RegionStatusRow({ cycle, own, revs }: { cycle: Cycle | undefined; own: Region; revs?: ForecastResponse['status'] }) {
   return (
     <div className="region-status">
@@ -69,6 +81,12 @@ function RegionStatusRow({ cycle, own, revs }: { cycle: Cycle | undefined; own: 
   );
 }
 
+/**
+ * Forecast review at stage 2: all regions side by side (Sales final, or Regional vs Sales); the own region's
+ * Regional column is editable (each save is a new version), with approve / reject buttons and the own version history.
+ * @param props.region - the Regional Manager's region
+ * @returns the rendered forecast tab
+ */
 function ForecastTab({ region }: { region: Region }) {
   const cycle = useCycle();
   const forecast = useForecast();
@@ -85,6 +103,9 @@ function ForecastTab({ region }: { region: Region }) {
   const regionalRev = forecast.data?.status[region]?.v2Rev ?? null;
   const nextRev = useNextRevision(region);
 
+  /**
+   * Saves edits to the region's Regional Manager revision (version 2); the toast names the new version or says nothing changed.
+   */
   const save = useApiMutation(
     ({ changes, comment }: { changes: CellChange[]; comment: string }) =>
       api.putForecast(
@@ -98,7 +119,13 @@ function ForecastTab({ region }: { region: Region }) {
         ? `${region}: saved as version V${r.revision} (${r.updated} line${r.updated === 1 ? '' : 's'} changed)`
         : 'No changes — no new version created',
   );
+  /**
+   * Approves the region's forecast (optional comment).
+   */
   const approve = useApiMutation((c: string) => api.approveForecast(region, c || undefined), `${region} forecast approved`);
+  /**
+   * Rejects the region's forecast back to the Sales Manager (comment required).
+   */
   const reject = useApiMutation((c: string) => api.rejectForecast(region, c), `${region} forecast rejected and returned to the Sales Manager`);
 
   if (forecast.isLoading) return <Loading what="forecast" />;
@@ -207,6 +234,12 @@ function ForecastTab({ region }: { region: Region }) {
   );
 }
 
+/**
+ * Allocation at stage 4: per-region confirmation status, unit transfer form, allocation V1 / V2 / Final with
+ * balance, transfer list (undo own pending transfers) and the "Confirm region" action.
+ * @param props.region - the Regional Manager's region
+ * @returns the rendered allocation tab
+ */
 function AllocationTab({ region }: { region: Region }) {
   const { username } = useSession();
   const cycle = useCycle();
@@ -220,7 +253,13 @@ function AllocationTab({ region }: { region: Region }) {
 
   const stage = cycle.data?.stage ?? 0;
   const confirmed = cycle.data?.confirmations[region];
+  /**
+   * Confirms the region's allocation (optional comment).
+   */
   const confirm = useApiMutation((c: string) => api.confirmAllocation(c || undefined), `${region} allocation confirmed`);
+  /**
+   * Undoes one of the user's pending transfers (comment required).
+   */
   const undo = useApiMutation(({ id, comment }: { id: number; comment: string }) => api.undoTransfer(id, comment), 'Transfer undone');
 
   const a = allocation.data;
@@ -338,6 +377,16 @@ function AllocationTab({ region }: { region: Region }) {
   );
 }
 
+/**
+ * Form to shift units of one product from one region to another in Allocation V2 (R-XFER-01), with
+ * validation (different regions, whole units > 0, not more than the source holds, comment required)
+ * and a live before/after preview per region; the product total stays the same.
+ * @param props.products - products to choose from
+ * @param props.v2 - current Allocation V2 matrix (region → productId → qty), or null if none
+ * @param props.ownRegion - the user's region (default source)
+ * @param props.disabledReason - when set, the form is read-only and this explanation is shown
+ * @returns the rendered transfer panel
+ */
 function TransferBox({
   products,
   v2,
@@ -358,6 +407,9 @@ function TransferBox({
   const [comment, setComment] = useState('');
   const [productFilter, setProductFilter] = useState('');
 
+  /**
+   * Creates the transfer; it is applied to Allocation V2 immediately.
+   */
   const create = useApiMutation(api.createTransfer, (t) => `Transfer ${t.fromRegion} → ${t.toRegion} (${t.qty}) applied to V2`);
 
   const filtered = useMemo(() => {
@@ -365,6 +417,10 @@ function TransferBox({
     return f ? products.filter((p) => p.name.toLowerCase().includes(f)) : products;
   }, [products, productFilter]);
 
+  /**
+   * @param r - region
+   * @returns the chosen product's current V2 quantity in that region (0 when no product is chosen)
+   */
   const qtyOf = (r: Region) => (productId === '' ? 0 : (v2?.[r]?.[String(productId)] ?? 0));
   const n = /^\d+$/.test(units.trim()) ? Number(units) : NaN;
   const source = qtyOf(from);
@@ -377,6 +433,11 @@ function TransferBox({
   if (!comment.trim()) problems.push('A comment is required.');
   if (!v2) problems.push('Allocation V2 is not available.');
 
+  /**
+   * Quantity a region would hold after the transfer, for the preview.
+   * @param r - region
+   * @returns the quantity after the transfer (unchanged when the entry is not valid)
+   */
   const after = (r: Region) => {
     const b = qtyOf(r);
     if (!Number.isInteger(n) || n <= 0 || from === to) return b;
@@ -384,6 +445,10 @@ function TransferBox({
   };
   const total = REGIONS.reduce((s, r) => s + qtyOf(r), 0);
 
+  /**
+   * Creates the transfer when the form is valid and clears units and comment on success (errors are shown as a toast).
+   * @returns a Promise that settles when the request is finished
+   */
   const submit = async () => {
     if (problems.length || productId === '') return;
     try {

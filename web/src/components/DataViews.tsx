@@ -8,7 +8,11 @@ import { fmtTime } from '../lib/format';
 
 type View = 'forecast' | 'inventory' | 'allocation';
 
-/** Read-only forecast / inventory / allocation views (Head of Sales FR-H1, Admin FR-A4). */
+/**
+ * Read-only forecast / inventory / allocation views (Head of Sales FR-H1, Admin FR-A4), switched by tabs.
+ * @param props.withInventory - shows the Inventory tab (default true)
+ * @returns the tabs and the selected view
+ */
 export function DataViews({ withInventory = true }: { withInventory?: boolean }) {
   const [view, setView] = useState<View>('forecast');
   return (
@@ -29,6 +33,10 @@ export function DataViews({ withInventory = true }: { withInventory?: boolean })
   );
 }
 
+/**
+ * Read-only forecast of all regions with a V1 / "V2 vs V1" switch and Excel export.
+ * @returns the rendered forecast panel
+ */
 function ForecastView() {
   const forecast = useForecast();
   const [v, setV] = useState<FcVersion>('v2');
@@ -53,6 +61,10 @@ function ForecastView() {
   );
 }
 
+/**
+ * Read-only available inventory per product, with the snapshot's source, uploader and time.
+ * @returns the rendered inventory panel
+ */
 function InventoryView() {
   const products = useProducts();
   const inventory = useInventory();
@@ -72,6 +84,10 @@ function InventoryView() {
   );
 }
 
+/**
+ * Read-only allocation matrix with a V1 / V2 / Final switch (defaults to the latest version that exists).
+ * @returns the rendered allocation panel
+ */
 function AllocationView() {
   const products = useProducts();
   const allocation = useAllocation();

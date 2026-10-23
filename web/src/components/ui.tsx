@@ -9,7 +9,14 @@ export interface SwitchOption<T extends string> {
   title?: string;
 }
 
-/** Segmented control used for V1 / V2 / Final switches (FR-C1). */
+/**
+ * Segmented control used for V1 / V2 / Final switches (FR-C1).
+ * @param props.value - currently selected option
+ * @param props.options - options (value, label, optional disabled / tooltip)
+ * @param props.onChange - called with the chosen value
+ * @param props.label - caption shown before the buttons (default "Version")
+ * @returns the rendered control
+ */
 export function VersionSwitch<T extends string>({
   value,
   options,
@@ -41,6 +48,13 @@ export function VersionSwitch<T extends string>({
   );
 }
 
+/**
+ * Simple tab bar.
+ * @param props.value - active tab
+ * @param props.tabs - tab values and labels
+ * @param props.onChange - called with the chosen tab
+ * @returns the rendered tab bar
+ */
 export function Tabs<T extends string>({
   value,
   tabs,
@@ -67,11 +81,22 @@ export function Tabs<T extends string>({
   );
 }
 
+/**
+ * Coloured chip showing a status (draft, submitted, approved, pending …).
+ * @param props.status - status text; missing shows "—"
+ * @returns the rendered chip
+ */
 export function StatusChip({ status }: { status: string | null | undefined }) {
   const s = status ?? 'none';
   return <span className={`chip chip-${s}`}>{status ?? '—'}</span>;
 }
 
+/**
+ * Region name with its colour dot; can mark the user's own region.
+ * @param props.region - region to show
+ * @param props.own - adds a "yours" label
+ * @returns the rendered tag
+ */
 export function RegionTag({ region, own }: { region: Region; own?: boolean }) {
   return (
     <span className={`region-tag ${REGION_CLASS[region]}${own ? ' own' : ''}`}>
@@ -82,6 +107,14 @@ export function RegionTag({ region, own }: { region: Region; own?: boolean }) {
   );
 }
 
+/**
+ * Card section with optional title, subtitle and action buttons in the header.
+ * @param props.title - heading
+ * @param props.subtitle - small text under the heading
+ * @param props.actions - buttons shown on the right of the header
+ * @param props.children - panel content
+ * @returns the rendered panel
+ */
 export function Panel({
   title,
   actions,
@@ -109,18 +142,39 @@ export function Panel({
   );
 }
 
+/**
+ * Coloured message strip.
+ * @param props.kind - info, warn, danger or success
+ * @param props.children - message content
+ * @returns the rendered banner
+ */
 export function Banner({ kind, children }: { kind: 'info' | 'warn' | 'danger' | 'success'; children: ReactNode }) {
   return <div className={`banner banner-${kind}`}>{children}</div>;
 }
 
+/**
+ * Placeholder shown while data loads ("Loading forecast…").
+ * @param props.what - what is loading (default "data")
+ * @returns the rendered placeholder
+ */
 export function Loading({ what = 'data' }: { what?: string }) {
   return <div className="empty">Loading {what}…</div>;
 }
 
+/**
+ * Danger banner for a failed data load.
+ * @param props.error - the error to show
+ * @returns the rendered banner
+ */
 export function QueryError({ error }: { error: unknown }) {
   return <Banner kind="danger">Could not load: {error instanceof Error ? error.message : String(error)}</Banner>;
 }
 
+/**
+ * Muted placeholder for an empty list or table.
+ * @param props.children - message
+ * @returns the rendered placeholder
+ */
 export function Empty({ children }: { children: ReactNode }) {
   return <div className="empty">{children}</div>;
 }

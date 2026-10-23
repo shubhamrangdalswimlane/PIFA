@@ -25,7 +25,18 @@ interface Props {
   subtitle?: string;
 }
 
-/** Every save of a region's forecast is a numbered version (V1 … Vn): list, compare any two, export, restore. */
+/**
+ * Every save of a region's forecast is a numbered version (V1 … Vn): list, compare any two, export, restore.
+ * Marks which version the Sales / Regional working copies hold and which was submitted.
+ * @param props.region - region whose versions are shown
+ * @param props.products - products, for the comparison table
+ * @param props.currentSales - version the Sales Manager working copy holds
+ * @param props.currentRegional - version the Regional Manager working copy holds
+ * @param props.submitted - version the Sales Manager submitted
+ * @param props.canRestore - each older row offers "Restore" into the caller's working copy
+ * @param props.restoreHint - tooltip of the Restore button
+ * @returns the rendered history panel
+ */
 export function VersionHistory({ region, products, currentSales, currentRegional, submitted, canRestore, restoreHint, title, subtitle }: Props) {
   const revisions = useRevisions(region);
   const list = revisions.data ?? [];
@@ -42,6 +53,9 @@ export function VersionHistory({ region, products, currentSales, currentRegional
     setFrom(previous);
   }, [region, latest, previous]);
 
+  /**
+   * Restores an older version into the caller's working copy; the toast names the new version.
+   */
   const restore = useApiMutation(
     ({ rev, comment }: { rev: number; comment: string }) => api.restoreRevision(region, rev, comment),
     (r, v) => `V${v.rev} restored as new version V${r.revision}`,
@@ -137,6 +151,15 @@ export function VersionHistory({ region, products, currentSales, currentRegional
   );
 }
 
+/**
+ * Compares two saved versions product by product (from → to, with difference and totals), optionally only changed products.
+ * @param props.versions - versions offered in the pickers
+ * @param props.from - older version number
+ * @param props.to - newer version number
+ * @param props.setFrom - changes the "from" version
+ * @param props.setTo - changes the "to" version
+ * @returns the rendered comparison
+ */
 function Compare({
   region,
   products,
@@ -169,6 +192,13 @@ function Compare({
   const shown = onlyChanged ? rows.filter((r) => r.d !== 0) : rows;
   const totals = rows.reduce((t, r) => ({ x: t.x + r.x, y: t.y + r.y }), { x: 0, y: 0 });
 
+  /**
+   * Version drop-down for the comparison.
+   * @param value - selected version number
+   * @param onChange - called with the chosen version number
+   * @param label - caption ("From" / "To")
+   * @returns the rendered select
+   */
   const picker = (value: number | null, onChange: (n: number) => void, label: string) => (
     <label className="field inline-field">
       <span>{label}</span>

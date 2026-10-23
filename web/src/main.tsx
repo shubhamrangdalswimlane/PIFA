@@ -6,6 +6,13 @@ import './styles.css';
 
 const root = createRoot(document.getElementById('root')!);
 
+/**
+ * Full-page message card shown while signing in or when sign-in failed (with a Retry button).
+ * @param props.title - headline
+ * @param props.detail - optional explanation (e.g. error text)
+ * @param props.error - true shows the error style and a Retry button
+ * @returns the rendered splash screen
+ */
 function Splash({ title, detail, error }: { title: string; detail?: string; error?: boolean }) {
   return (
     <div className="splash">

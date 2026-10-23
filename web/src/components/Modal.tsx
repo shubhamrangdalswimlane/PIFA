@@ -9,6 +9,15 @@ interface ModalProps {
   wide?: boolean;
 }
 
+/**
+ * Generic dialog with title, body and optional footer; closes on Escape or a click on the backdrop.
+ * @param props.open - whether the dialog is shown
+ * @param props.title - dialog heading
+ * @param props.onClose - called when the user closes the dialog
+ * @param props.footer - optional footer content (buttons)
+ * @param props.wide - uses the wide layout
+ * @returns the rendered dialog, or null when closed
+ */
 export function Modal({ open, title, onClose, children, footer, wide }: ModalProps) {
   const titleId = useId();
   useEffect(() => {
@@ -52,7 +61,17 @@ interface CommentModalProps {
   canSubmit?: boolean;
 }
 
-/** Comment dialog: saving is impossible with an empty comment when required. */
+/**
+ * Comment dialog: saving is impossible with an empty comment when required.
+ * Clears the comment on open, submits with the button or Ctrl/Cmd+Enter and closes only when `onSubmit` resolves.
+ * @param props.onSubmit - receives the trimmed comment; resolve to close, reject to keep the dialog open
+ * @param props.required - comment must be non-empty (default true, FR-C2)
+ * @param props.canSubmit - extra condition that must hold before submitting
+ * @param props.confirmLabel - text of the confirm button (default "Save")
+ * @param props.danger - shows the confirm button in the danger style
+ * @param props.children - extra content above the comment field (e.g. a change summary)
+ * @returns the rendered dialog
+ */
 export function CommentModal({
   open,
   title,
@@ -76,6 +95,10 @@ export function CommentModal({
   const empty = comment.trim().length === 0;
   const disabled = busy || !canSubmit || (required && empty);
 
+  /**
+   * Submits the trimmed comment, closes on success and keeps the dialog open on failure (the error toast is already shown).
+   * @returns a Promise that settles when the submit is finished
+   */
   const submit = async () => {
     if (disabled) return;
     setBusy(true);

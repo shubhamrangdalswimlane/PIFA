@@ -15,6 +15,11 @@ _migrated = False
 
 
 def connect() -> psycopg.Connection:
+    """Open a new PostgreSQL connection that returns rows as dicts and searches the PIFA schema.
+
+    Returns:
+        An open psycopg Connection (use it as a context manager to commit or roll back and close it).
+    """
     s = get_settings()
     return psycopg.connect(
         s.database_url,
@@ -25,13 +30,24 @@ def connect() -> psycopg.Connection:
 
 
 def get_db() -> Iterator[psycopg.Connection]:
-    """FastAPI dependency: commit on success, roll back on any error."""
+    """FastAPI dependency: commit on success, roll back on any error.
+
+    Runs any pending migrations on first use.
+
+    Yields:
+        conn: database connection for this request.
+    """
     ensure_migrated()
     with connect() as conn:  # psycopg commits on clean exit, rolls back on exception
         yield conn
 
 
 def ensure_migrated() -> None:
+    """Apply pending SQL migrations once per process, when auto_migrate is enabled.
+
+    Returns:
+        None
+    """
     global _migrated
     if _migrated or not get_settings().auto_migrate:
         return
@@ -40,7 +56,11 @@ def ensure_migrated() -> None:
 
 
 def migrate() -> list[str]:
-    """Apply pending SQL migrations once, guarded by an advisory lock for concurrent cold starts."""
+    """Apply pending SQL migrations once, guarded by an advisory lock for concurrent cold starts.
+
+    Returns:
+        Names of the migration files applied by this call (empty when the schema is up to date).
+    """
     schema = get_settings().db_schema
     applied: list[str] = []
     with connect() as conn:

@@ -1,21 +1,27 @@
 import { useState } from 'react';
 import { api } from '../api/client';
 import { useApiMutation, useCycle, useSummary, useTransfers } from '../api/hooks';
-import { REGIONS, type Summary, type Transfer } from '../api/types';
+import type { Summary, Transfer } from '../api/types';
 import { AuditTable } from '../components/AuditTable';
 import { DataViews } from '../components/DataViews';
 import { CommentModal } from '../components/Modal';
 import { TransferList } from '../components/TransferList';
-import { Banner, Loading, Panel, QueryError, RegionTag, Tabs } from '../components/ui';
-import { fmtQty, REGION_CLASS } from '../lib/format';
+import { Banner, Loading, Panel, QueryError, Tabs } from '../components/ui';
+import { fmtQty } from '../lib/format';
 
-type Tab = 'overview' | 'data' | 'transfers' | 'audit';
+type Tab = 'data' | 'transfers' | 'audit';
 
+/**
+ * Head of Sales dashboard: KPI cards, region comparison chart, read-only forecast / allocation data,
+ * transfer review (approve / reject each or all pending) and the audit trail. At stage 5 the Head
+ * approves and publishes the allocation as Final, or rejects it back to stage 4.
+ * @returns the rendered dashboard page
+ */
 export default function HeadDashboard() {
   const cycle = useCycle();
   const summary = useSummary();
   const transfers = useTransfers();
-  const [tab, setTab] = useState<Tab>('overview');
+  const [tab, setTab] = useState<Tab>('data');
   const [approveOpen, setApproveOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const stage = cycle.data?.stage ?? 0;
@@ -23,8 +29,17 @@ export default function HeadDashboard() {
   const [decision, setDecision] = useState<{ t: Transfer; kind: 'approve' | 'reject' } | null>(null);
   const [approveAllOpen, setApproveAllOpen] = useState(false);
 
+  /**
+   * Approves and publishes the allocation (optional comment).
+   */
   const approve = useApiMutation((c: string) => api.approveAllocation(c || undefined), 'Allocation approved and published');
+  /**
+   * Rejects the allocation back to Regional change (comment required).
+   */
   const reject = useApiMutation((c: string) => api.rejectAllocation(c), 'Allocation rejected — returned to Regional change');
+  /**
+   * Approves or rejects one transfer; a rejected transfer's units move back.
+   */
   const decide = useApiMutation(
     ({ t, kind, comment }: { t: Transfer; kind: 'approve' | 'reject'; comment: string }) =>
       kind === 'approve' ? api.approveTransfer(t.id, comment || undefined) : api.rejectTransfer(t.id, comment),
@@ -33,6 +48,9 @@ export default function HeadDashboard() {
         ? `Transfer rejected: ${t.qty} ${t.product} moved back ${t.toRegion} → ${t.fromRegion}`
         : `Transfer approved: ${t.fromRegion} → ${t.toRegion}, ${t.qty} ${t.product}`,
   );
+  /**
+   * Approves all pending transfers (optional comment).
+   */
   const approveAll = useApiMutation(
     (c: string) => api.approveAllTransfers(c || undefined),
     (r) => `${r.approved} transfer${r.approved === 1 ? '' : 's'} approved`,
@@ -80,17 +98,11 @@ export default function HeadDashboard() {
         value={tab}
         onChange={setTab}
         tabs={[
-          { value: 'overview', label: 'Region comparison' },
           { value: 'data', label: 'Forecast & allocation' },
           { value: 'transfers', label: `Transfers${summary.data ? ` (${summary.data.transfersPending} pending)` : ''}` },
           { value: 'audit', label: 'Audit' },
         ]}
       />
-      {tab === 'overview' && summary.data && (
-        <Panel title="Region comparison" subtitle="Forecast V1 / V2 vs allocation (final if published, else V2, else V1).">
-          <RegionBars s={summary.data} />
-        </Panel>
-      )}
       {tab === 'data' && <DataViews />}
       {tab === 'transfers' && (
         <Panel
@@ -199,6 +211,11 @@ export default function HeadDashboard() {
   );
 }
 
+/**
+ * KPI cards: forecast V1 and V2 (with change vs V1), inventory, allocated (with share of inventory) and pending transfers.
+ * @param props.s - summary totals
+ * @returns the rendered KPI row
+ */
 function Kpis({ s }: { s: Summary }) {
   const cards = [
     { label: 'Forecast V1', value: s.forecastV1 },
@@ -220,46 +237,6 @@ function Kpis({ s }: { s: Summary }) {
             </div>
           )}
           {c.sub && <div className="kpi-sub muted">{c.sub}</div>}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function RegionBars({ s }: { s: Summary }) {
-  const rows = REGIONS.map((r) => {
-    const b = s.byRegion[r];
-    const alloc = b ? (b.final ?? (b.allocationV2 || b.allocationV1)) : 0;
-    return { r, v1: b?.forecastV1 ?? 0, v2: b?.forecastV2 ?? 0, alloc };
-  });
-  const max = Math.max(1, ...rows.flatMap((x) => [x.v1, x.v2, x.alloc]));
-  const series = [
-    { key: 'v1' as const, label: 'Forecast V1', cls: 'bar-v1' },
-    { key: 'v2' as const, label: 'Forecast V2', cls: 'bar-v2' },
-    { key: 'alloc' as const, label: 'Allocation', cls: 'bar-alloc' },
-  ];
-  return (
-    <div className="bars">
-      <div className="bars-legend">
-        {series.map((x) => (
-          <span key={x.key}>
-            <span className={`swatch ${x.cls}`} /> {x.label}
-          </span>
-        ))}
-      </div>
-      {rows.map((row) => (
-        <div key={row.r} className={`bar-group ${REGION_CLASS[row.r]}`}>
-          <div className="bar-region">
-            <RegionTag region={row.r} />
-          </div>
-          <div className="bar-stack">
-            {series.map((x) => (
-              <div key={x.key} className="bar-line" title={`${row.r} ${x.label}: ${fmtQty(row[x.key])}`}>
-                <div className={`bar ${x.cls}`} style={{ width: `${(row[x.key] / max) * 100}%` }} />
-                <span className="bar-value">{fmtQty(row[x.key])}</span>
-              </div>
-            ))}
-          </div>
         </div>
       ))}
     </div>

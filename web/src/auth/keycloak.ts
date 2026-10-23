@@ -21,12 +21,16 @@ export interface SessionUser {
 /**
  * Initialise Keycloak with Authorization Code + PKCE. Redirects to the login
  * page when there is no session. Tokens stay in memory (keycloak-js instance).
+ * @returns a Promise resolving to the signed-in Keycloak instance
  */
 export async function initAuth(): Promise<Keycloak> {
   if (!authConfig.url) {
     throw new Error('VITE_KEYCLOAK_URL is not set. Copy .env.example to .env.local and set it.');
   }
   const kc = new Keycloak({ url: authConfig.url, realm: authConfig.realm, clientId: authConfig.clientId });
+  /**
+   * Refreshes the token when it expires; falls back to a new login if refresh fails.
+   */
   kc.onTokenExpired = () => {
     kc.updateToken(30).catch(() => kc.login());
   };
@@ -39,7 +43,10 @@ export async function initAuth(): Promise<Keycloak> {
   return kc;
 }
 
-/** Returns a fresh access token (refreshed when it expires within 30 s). */
+/**
+ * Returns a fresh access token (refreshed when it expires within 30 s).
+ * @returns a Promise resolving to the bearer token; redirects to sign-in and rejects when the session expired
+ */
 export async function getAccessToken(): Promise<string> {
   const kc = keycloak;
   if (!kc) throw new Error('Not signed in');
@@ -53,14 +60,26 @@ export async function getAccessToken(): Promise<string> {
   return kc.token;
 }
 
+/**
+ * Signs the user out of Keycloak and returns to the app's start page.
+ * @returns nothing
+ */
 export function logout(): void {
   void keycloak?.logout({ redirectUri: window.location.origin });
 }
 
+/**
+ * Claims of the current access token.
+ * @returns the decoded token payload, or an empty object when not signed in
+ */
 export function tokenClaims(): Record<string, unknown> {
   return (keycloak?.tokenParsed as Record<string, unknown> | undefined) ?? {};
 }
 
+/**
+ * Builds the signed-in user from the token: name, PIFA roles (in contract order), primary role and region.
+ * @returns the `SessionUser`
+ */
 export function sessionUser(): SessionUser {
   const claims = tokenClaims();
   const realmAccess = claims.realm_access as { roles?: unknown } | undefined;

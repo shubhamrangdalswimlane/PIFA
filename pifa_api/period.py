@@ -19,7 +19,17 @@ _MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun",
 
 
 def parse(value) -> date:
-    """Accepts 2026-11, 2026/11, 11/2026, 11-2026, Nov-2026, Nov 2026, November 2026, Nov-26, or a date. Returns the 1st of the month."""
+    """Accepts 2026-11, 2026/11, 11/2026, 11-2026, Nov-2026, Nov 2026, November 2026, Nov-26, or a date. Returns the 1st of the month.
+
+    Args:
+        value: month-year text, a date or a datetime.
+
+    Returns:
+        date of the first day of that month.
+
+    Raises:
+        ValueError: when the value is not a recognisable month-year between 2000 and 2100.
+    """
     if isinstance(value, datetime):
         return date(value.year, value.month, 1)
     if isinstance(value, date):
@@ -43,20 +53,48 @@ def parse(value) -> date:
 
 
 def key(p: date) -> str:
+    """Format a period as its canonical key (used in the API, file names and the X-Period header).
+
+    Args:
+        p: first day of the month.
+
+    Returns:
+        "YYYY-MM", e.g. "2026-11".
+    """
     return p.strftime("%Y-%m")
 
 
 def label(p: date) -> str:
+    """Format a period for display.
+
+    Args:
+        p: first day of the month.
+
+    Returns:
+        Short label such as "Nov 2026".
+    """
     return p.strftime("%b %Y")
 
 
 def current() -> date | None:
+    """Month-year selected for the current request.
+
+    Returns:
+        First day of the selected month, or None when the request named no period (the latest cycle is used).
+    """
     return _current.get()
 
 
 @contextmanager
 def use(p: date | None) -> Iterator[None]:
-    """Run a block against another period (e.g. rows of an upload for a different month)."""
+    """Run a block against another period (e.g. rows of an upload for a different month).
+
+    Args:
+        p: period to select inside the block (None = the latest cycle).
+
+    Yields:
+        None; the previously selected period is restored when the block ends.
+    """
     token = _current.set(p)
     try:
         yield
@@ -65,7 +103,17 @@ def use(p: date | None) -> Iterator[None]:
 
 
 async def from_request(request: Request) -> None:
-    """App-wide dependency: read the selected period from the X-Period header or ?period=."""
+    """App-wide dependency: read the selected period from the X-Period header or ?period=.
+
+    Args:
+        request: incoming HTTP request.
+
+    Returns:
+        None
+
+    Raises:
+        HTTPException: 422 when the given period is not a valid month-year.
+    """
     raw = request.headers.get("x-period") or request.query_params.get("period")
     if not raw:
         _current.set(None)

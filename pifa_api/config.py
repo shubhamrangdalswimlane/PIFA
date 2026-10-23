@@ -26,20 +26,39 @@ class Settings(BaseSettings):
 
     @property
     def realm(self) -> str:
+        """Keycloak realm name, taken from the last path segment of the issuer URL.
+
+        Returns:
+            Realm name, e.g. "printer-poc".
+        """
         return self.keycloak_issuer.rstrip("/").rsplit("/", 1)[-1]
 
     @property
     def keycloak_base(self) -> str:
-        """Keycloak root URL (without /realms/...) used for server-to-server calls."""
+        """Keycloak root URL (without /realms/...) used for server-to-server calls.
+
+        Returns:
+            Base URL without a trailing slash.
+        """
         if self.keycloak_internal_url:
             return self.keycloak_internal_url.rstrip("/")
         return self.keycloak_issuer.split("/realms/")[0]
 
     @property
     def realm_base(self) -> str:
+        """Server-to-server URL of the realm, used for JWKS, token and health calls.
+
+        Returns:
+            keycloak_base + "/realms/<realm>".
+        """
         return f"{self.keycloak_base}/realms/{self.realm}"
 
 
 @lru_cache
 def get_settings() -> Settings:
+    """Load the application settings from the environment and `.env` once and cache them.
+
+    Returns:
+        The shared Settings instance.
+    """
     return Settings()

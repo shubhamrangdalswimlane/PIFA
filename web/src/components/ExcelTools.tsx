@@ -29,7 +29,20 @@ interface QueuedFile {
   error: string | null;
 }
 
-/** Excel upload: parse in browser, before/after preview, required comment, then POST (FR-C3). */
+/**
+ * Excel upload: parse in browser, before/after preview, required comment, then POST (FR-C3).
+ * The dialog parses the chosen .xlsx file(s), lists problems per file, previews changed / new / invalid rows
+ * per month, and uploads several files one after another (each forecast file becomes its own version).
+ * @param props.kind - which file type is uploaded (forecast, inventory or allocation)
+ * @param props.products - known products, for name matching
+ * @param props.current - current values for the "before" column of the preview
+ * @param props.region - forecast uploads: target region
+ * @param props.version - forecast uploads: 1 = Sales Manager, 2 = Regional Manager
+ * @param props.disabled - disables the button; `disabledReason` is shown as tooltip
+ * @param props.multiple - allow several files in one upload
+ * @param props.note - extra explanation shown in the dialog
+ * @returns the upload button and its dialog
+ */
 export function UploadButton({ kind, products, current, region, version, disabled, disabledReason, label, multiple, note }: UploadProps) {
   const [open, setOpen] = useState(false);
   const [queue, setQueue] = useState<QueuedFile[]>([]);
@@ -37,17 +50,29 @@ export function UploadButton({ kind, products, current, region, version, disable
   const [onlyChanged, setOnlyChanged] = useState(true);
   const toast = useToast();
 
+  /**
+   * Uploads one file (forecast files go to the given region / version) and reports the server's outcome per file.
+   */
   const upload = useApiMutation(
     ({ f, comment }: { f: File; comment: string }) =>
       api.uploadFile(kind, f, comment, kind === 'forecast' ? { region, version } : undefined),
     (r, v) => `${v.f.name}: ${r.message ?? `${r.status}, ${r.applied} row${r.applied === 1 ? '' : 's'} changed`}`,
   );
 
+  /**
+   * Clears the file queue and the previewed file.
+   * @returns nothing
+   */
   const reset = () => {
     setQueue([]);
     setActive(0);
   };
 
+  /**
+   * Parses one chosen file for the preview; non-.xlsx or unreadable files get an error instead.
+   * @param f - chosen file
+   * @returns a Promise resolving to the queued file with its parse result or error
+   */
   const parseOne = async (f: File): Promise<QueuedFile> => {
     if (!/\.xlsx$/i.test(f.name)) return { file: f, parsed: null, error: 'Only .xlsx files are accepted.' };
     try {
@@ -57,6 +82,11 @@ export function UploadButton({ kind, products, current, region, version, disable
     }
   };
 
+  /**
+   * Handles the file input: resets the queue and parses all chosen files.
+   * @param files - files from the input
+   * @returns a Promise that resolves when all files are parsed
+   */
   const onPick = async (files: FileList | null) => {
     reset();
     if (!files?.length) return;
@@ -86,6 +116,11 @@ export function UploadButton({ kind, products, current, region, version, disable
     };
   }, [parsed, current, keys]);
 
+  /**
+   * Reason a queued file cannot be uploaded (read error, missing columns, no rows, invalid values).
+   * @param q - queued file
+   * @returns the problem text, or null when the file is ready
+   */
   const fileProblem = (q: QueuedFile) =>
     q.error ??
     (!q.parsed
@@ -250,6 +285,14 @@ export function UploadButton({ kind, products, current, region, version, disable
   );
 }
 
+/**
+ * Button that downloads an Excel export (forecast, inventory, allocation or audit) and shows errors as a toast.
+ * @param props.kind - what to export
+ * @param props.version - which version ('1', '2' or 'final'); also used in the default label
+ * @param props.label - custom button text
+ * @param props.query - extra query parameters, e.g. { month: 'all' } for the audit export
+ * @returns the rendered button
+ */
 export function ExportButton({
   kind,
   version,

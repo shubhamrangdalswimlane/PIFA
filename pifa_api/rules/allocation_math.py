@@ -17,7 +17,20 @@ PROPORTIONAL = "PROPORTIONAL"
 
 
 def allocate(inventory: int, demand: dict[str, int], baseline_pct: float, sharing: str) -> dict[str, int]:
-    """Allocation per region (in region order) for one printer model."""
+    """Allocation per region (in region order) for one printer model.
+
+    Args:
+        inventory: available units of the model.
+        demand: forecast demand per region (missing regions count as 0).
+        baseline_pct: baseline share per region, in percent of inventory (UNMET_DEMAND sharing only).
+        sharing: UNMET_DEMAND or PROPORTIONAL.
+
+    Returns:
+        {region: allocated units} in region order North, East, West, South.
+
+    Raises:
+        ValueError: when the inventory or any demand is negative.
+    """
     d = [int(demand.get(r, 0)) for r in REGIONS]
     if inventory < 0 or any(x < 0 for x in d):
         raise ValueError("inventory and demand must be >= 0")
@@ -44,6 +57,16 @@ def largest_remainder(units: int, weights: list[int]) -> list[int]:
 
     Requires units <= sum(weights), which guarantees no share exceeds its weight.
     Ties on the remainder go to the earlier region in region order.
+
+    Args:
+        units: whole units to share.
+        weights: weight per region, in region order.
+
+    Returns:
+        Integer shares in the same order as `weights`, summing to `units`.
+
+    Raises:
+        ValueError: when `units` exceeds the total weight.
     """
     total = sum(weights)
     if units <= 0 or total == 0:

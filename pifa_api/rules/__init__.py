@@ -34,27 +34,63 @@ CATALOGUE = [
 
 
 def catalogue() -> list[dict]:
+    """List every business rule with its ID, package and description.
+
+    Returns:
+        list of {"id", "package", "description"} dicts in catalogue order.
+    """
     return [{"id": i, "package": p, "description": d} for i, p, d in CATALOGUE]
 
 
 # --- helpers ---------------------------------------------------------------------------------------
 
 def whole_non_negative(v) -> bool:
+    """Check that a quantity is a whole, finite number >= 0 (booleans are rejected); the R-FC-01 test.
+
+    Args:
+        v: value taken from the request.
+
+    Returns:
+        True when the value is a valid quantity.
+    """
     return isinstance(v, int | float) and not isinstance(v, bool) and math.isfinite(v) and v >= 0 and v == math.floor(v)
 
 
 def blank(s) -> bool:
+    """Tell whether a comment is missing or only whitespace.
+
+    Args:
+        s: value to test.
+
+    Returns:
+        True when blank.
+    """
     return s is None or not str(s).strip()
 
 
 def fmt(v) -> str:
-    """12.0 -> "12", 2.5 -> "2.5" for messages."""
+    """12.0 -> "12", 2.5 -> "2.5" for messages.
+
+    Args:
+        v: value to format.
+
+    Returns:
+        The value as text, with whole numbers shown without a decimal part.
+    """
     if isinstance(v, int | float) and not isinstance(v, bool) and math.isfinite(v) and v == round(v) and abs(v) < 1e15:
         return str(int(v))
     return str(v)
 
 
 def region_index(region) -> int:
+    """Sort key for regions: position in North, East, West, South, with unknown or missing regions last.
+
+    Args:
+        region: region name or None.
+
+    Returns:
+        Index in REGIONS, or len(REGIONS) when the region is unknown.
+    """
     return REGIONS.index(region) if region in REGIONS else len(REGIONS)
 
 
@@ -72,7 +108,14 @@ class Rule:
 
 
 def _transfer_region(t: dict) -> str | None:
-    """Region reported on a transfer violation: the source region when it is valid."""
+    """Region reported on a transfer violation: the source region when it is valid.
+
+    Args:
+        t: transfer fact.
+
+    Returns:
+        The source region, or None when it is not a valid region.
+    """
     return t.get("fromRegion") if t.get("fromRegion") in REGIONS else None
 
 
@@ -124,6 +167,15 @@ RULES: list[Rule] = [
 
 
 def _fire(package: str, facts: list[tuple[str, dict]]) -> list[dict]:
+    """Run every rule of a package against the facts and collect the violations.
+
+    Args:
+        package: rules package name.
+        facts: (fact type, fact dict) pairs, e.g. ("change", {...}).
+
+    Returns:
+        list of {"ruleId", "product", "region", "message"} sorted by rule ID, product, region order and message.
+    """
     violations = []
     for rule in (r for r in RULES if r.package == package):
         for kind, fact in facts:
@@ -138,12 +190,37 @@ def _fire(package: str, facts: list[tuple[str, dict]]) -> list[dict]:
 # --- packages --------------------------------------------------------------------------------------
 
 def _check_regions(values: dict, what: str) -> None:
+    """Reject region keys that are not North, East, West or South.
+
+    Args:
+        values: per-region dict to check.
+        what: field name used in the error message.
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: when an unknown region is present.
+    """
     unknown = [r for r in values if r not in REGIONS]
     if unknown:
         raise ValueError(f"Unknown region(s) in {what}: {unknown}")
 
 
 def evaluate(package: str, payload: dict) -> dict:
+    """Evaluate one business rules package against a request payload (in-process replacement of the former Drools service).
+
+    Args:
+        package: forecast, allocation, transfer or approval.
+        payload: package input: {"changes", "review"?} for forecast, {"mode", "config", "models"} for allocation,
+            {"transfer"} for transfer, {"request"} for approval.
+
+    Returns:
+        {"violations": [...]}; the allocation package also returns "allocations".
+
+    Raises:
+        ValueError: for an unknown package or a malformed payload.
+    """
     if package == "forecast":
         facts = [("change", c) for c in payload.get("changes") or [] if c is not None]
         if payload.get("review") is not None:
@@ -167,6 +244,21 @@ def evaluate(package: str, payload: dict) -> dict:
 
 
 def _evaluate_allocation(payload: dict) -> dict:
+    """Evaluate the allocation package for every printer model.
+
+    ALLOCATE mode computes the R-ALLOC-01 shares from inventory and demand; VALIDATE mode checks R-ALLOC-02
+    (allocated <= inventory). R-FC-01 is checked on every quantity in both modes.
+
+    Args:
+        payload: {"mode": "ALLOCATE" | "VALIDATE", "config": {"baselinePct", "sharing"},
+            "models": [{"product", "inventory", "demand": {region: qty}, "allocated": {region: qty}}]}.
+
+    Returns:
+        {"allocations": [{"product", "region", "qty"}], "violations": [...]}; allocations is empty in VALIDATE mode.
+
+    Raises:
+        ValueError: for an invalid mode, baselinePct, sharing or region.
+    """
     mode = payload.get("mode")
     if mode not in ("ALLOCATE", "VALIDATE"):
         raise ValueError("mode must be ALLOCATE or VALIDATE")
@@ -201,7 +293,12 @@ def _evaluate_allocation(payload: dict) -> dict:
 
 
 def self_test() -> tuple[bool, str]:
-    """Health check: the PRD worked example must allocate 25 per region."""
+    """Health check: the PRD worked example must allocate 25 per region.
+
+    Returns:
+        (ok, detail): ok is True when the example allocates 25 per region without violations; detail summarises the
+        loaded rules or says the self-test failed.
+    """
     result = evaluate("allocation", {"mode": "ALLOCATE", "config": {"baselinePct": 25, "sharing": UNMET_DEMAND},
                                      "models": [{"product": "Model A", "inventory": 100, "demand": dict.fromkeys(REGIONS, 25)}]})
     ok = [a["qty"] for a in result["allocations"]] == [25, 25, 25, 25] and not result["violations"]

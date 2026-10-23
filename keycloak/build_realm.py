@@ -13,6 +13,18 @@ ROLES = ["SALES_MANAGER", "REGIONAL_MANAGER", "PLANNER", "HEAD_OF_SALES", "ADMIN
 
 
 def user(username, first, last, role, region=None):
+    """Build a seeded realm user whose password is the ${PIFA_SEED_PASSWORD} placeholder.
+
+    Args:
+        username: Login name; the email becomes "<username>@pifa.local".
+        first: First name.
+        last: Last name.
+        role: The single PIFA realm role, e.g. "SALES_MANAGER".
+        region: Optional region ("North", "East", "West", "South") stored as the `region` attribute.
+
+    Returns:
+        A Keycloak user representation dict ready for the realm's "users" list.
+    """
     u = {
         "username": username,
         "enabled": True,
@@ -29,6 +41,17 @@ def user(username, first, last, role, region=None):
 
 
 def attr(name, display, validations=None, edit=("admin", "user")):
+    """Build one attribute definition for the declarative user profile (viewable by admins and users).
+
+    Args:
+        name: Attribute name, e.g. "region".
+        display: Plain display name shown in Keycloak forms.
+        validations: Keycloak validator config, e.g. {"length": {"max": 255}}; defaults to none.
+        edit: Who may edit the attribute ("admin" and/or "user").
+
+    Returns:
+        A user-profile attribute dict with name, displayName, validations, permissions and multivalued=False.
+    """
     return {
         "name": name,
         "displayName": display,
@@ -38,6 +61,7 @@ def attr(name, display, validations=None, edit=("admin", "user")):
     }
 
 
+# Declarative user profile: standard attributes plus an admin-only "region".
 user_profile = {
     "attributes": [
         # Plain display names: "${...}" message keys would collide with the env placeholders.
@@ -50,6 +74,7 @@ user_profile = {
     "groups": [{"name": "user-metadata", "displayHeader": "User metadata", "displayDescription": "Attributes, which refer to user metadata"}],
 }
 
+# Seed users: a sales manager and a regional manager per region, the central roles, and service accounts.
 users = []
 for r in REGIONS:
     users.append(user(f"sm.{r.lower()}", "Sales Manager", r, "SALES_MANAGER", r))
@@ -68,6 +93,7 @@ users += [
     {"username": "service-account-printer-upstream", "enabled": True, "serviceAccountClientId": "printer-upstream"},
 ]
 
+# Realm settings, roles and clients (web app, API, service-to-service, upstream drops).
 realm = {
     "realm": "printer-poc",
     "enabled": True,
@@ -150,6 +176,7 @@ realm = {
     },
 }
 
+# Write the realm next to this script.
 out = Path(__file__).with_name("realm-export.json")
 out.write_text(json.dumps(realm, indent=2) + "\n", encoding="utf-8")
 print(f"wrote {out}")

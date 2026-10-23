@@ -13,6 +13,12 @@ import { Banner, Loading, Panel, QueryError, RegionTag, StatusChip } from '../co
 import { currentFromQty } from '../lib/excel';
 import { fmtTime } from '../lib/format';
 
+/**
+ * Sales Manager dashboard for their own region: edit or upload the forecast (each save becomes the next
+ * version V<n>), export the current version, submit it to the Regional Manager (stages 1–2), see a
+ * rejection reason, browse / compare / restore own versions and see own change history.
+ * @returns the rendered dashboard page
+ */
 export default function SalesDashboard() {
   const { region } = useSession();
   const cycle = useCycle();
@@ -30,6 +36,9 @@ export default function SalesDashboard() {
   const submittedRev = status?.v1SubmittedRev ?? null;
   const nextRev = useNextRevision(region);
 
+  /**
+   * Saves edits to the Sales Manager forecast (version 1); the toast names the new version or says nothing changed.
+   */
   const save = useApiMutation(
     ({ changes, comment }: { changes: QtyChange[]; comment: string }) => api.putForecast(region!, 1, changes, comment),
     (r) =>
@@ -37,6 +46,9 @@ export default function SalesDashboard() {
         ? `Saved as version V${r.revision} (${r.updated} line${r.updated === 1 ? '' : 's'} changed)`
         : 'No changes — no new version created',
   );
+  /**
+   * Submits the current version to the Regional Manager (optional comment).
+   */
   const submit = useApiMutation(
     (comment: string) => api.submitForecast(region!, comment || undefined),
     `Forecast submitted${salesRev ? ` — V${salesRev} sent to the Regional Manager` : ''}`,
@@ -54,6 +66,12 @@ export default function SalesDashboard() {
   if (forecast.error) return <QueryError error={forecast.error} />;
   const products = forecast.data?.products ?? [];
 
+  /**
+   * Saves the grid edits to the Sales Manager forecast (version 1) as a new version.
+   * @param changes - edited cells
+   * @param comment - required reason
+   * @returns a Promise resolving to the save result (rejects on failure so the dialog stays open)
+   */
   const onSave = (changes: CellChange[], comment: string) =>
     save.mutateAsync({ changes: changes.map((c) => ({ productId: c.productId, qty: c.qty })), comment });
 
@@ -157,6 +175,11 @@ export default function SalesDashboard() {
   );
 }
 
+/**
+ * Red banner telling the Sales Manager the forecast was rejected, quoting the Regional Manager's reason.
+ * @param props.rejection - who rejected, when and why (may be missing)
+ * @returns the rendered banner
+ */
 function RejectionBanner({ rejection }: { rejection: Rejection | null | undefined }) {
   return (
     <Banner kind="danger">

@@ -56,11 +56,28 @@ interface EditableGridProps {
 
 type Pending = Record<string, Record<string, string>>; // productId → colKey → raw input
 
+/**
+ * Checks that a cell entry is a whole number of 0 or more.
+ * @param s - raw input
+ * @returns true when valid
+ */
 const isValidQty = (s: string) => /^\d+$/.test(s.trim());
 
+/**
+ * Builds the value lookup for one product row: pending (valid) edits win over stored values, and
+ * calculated columns are computed from those; results are cached per column.
+ * @param columns - grid columns
+ * @param productId - product of the row
+ * @param pendingRow - raw pending inputs of the row by column key
+ * @returns the `Eff` lookup for the row
+ */
 function makeEff(columns: GridColumn[], productId: number, pendingRow: Record<string, string> | undefined): Eff {
   const cache = new Map<string, number | null>();
   const byKey = new Map(columns.map((c) => [c.key, c]));
+  /**
+   * @param key - column key
+   * @returns the effective value of that column for the row, or null when not available
+   */
   const eff: Eff = (key) => {
     if (cache.has(key)) return cache.get(key)!;
     const col = byKey.get(key);
@@ -78,6 +95,12 @@ function makeEff(columns: GridColumn[], productId: number, pendingRow: Record<st
   return eff;
 }
 
+/**
+ * CSS class for a calculated cell: delta colouring, or red for a negative balance.
+ * @param col - column of the cell
+ * @param v - cell value
+ * @returns the CSS class, or ''
+ */
 function toneClass(col: GridColumn, v: number | null): string {
   if (col.type !== 'calc') return '';
   if (col.tone === 'delta') return deltaClass(v);
@@ -85,6 +108,12 @@ function toneClass(col: GridColumn, v: number | null): string {
   return '';
 }
 
+/**
+ * Formats a cell value: signed for delta columns, plain quantity otherwise.
+ * @param col - column of the cell
+ * @param v - cell value
+ * @returns the display text
+ */
 function fmtCell(col: GridColumn, v: number | null): string {
   return col.type === 'calc' && col.tone === 'delta' ? fmtDelta(v) : fmtQty(v);
 }
@@ -98,6 +127,16 @@ interface RowProps {
   rowNote?: (eff: Eff, product: Product) => ReactNode;
 }
 
+/**
+ * One product row of the grid: editable inputs for editable quantity columns (marked pending / invalid),
+ * formatted values for the others; memoised so typing re-renders only the edited row.
+ * @param props.product - product of the row
+ * @param props.pendingRow - raw pending inputs of the row
+ * @param props.onEdit - called on every keystroke in an editable cell
+ * @param props.rowTone - optional row highlighting (danger / warn)
+ * @param props.rowNote - optional extra content after the product name
+ * @returns the rendered table row
+ */
 const GridRow = memo(function GridRow({ product, columns, pendingRow, onEdit, rowTone, rowNote }: RowProps) {
   const eff = makeEff(columns, product.id, pendingRow);
   const tone = rowTone?.(eff);
@@ -141,6 +180,14 @@ const GridRow = memo(function GridRow({ product, columns, pendingRow, onEdit, ro
  * Products-as-rows grid with optional editable quantity columns. Edits are
  * kept as pending cells; "Save" opens a comment modal (empty comment cannot be
  * saved, FR-C2). Delta and computed columns update live from pending values.
+ * Also offers a product filter, an "only flagged" filter and a totals row.
+ * @param props.products - rows of the grid
+ * @param props.columns - quantity and calculated columns
+ * @param props.onSave - receives all valid pending changes and the comment; must reject on failure
+ * @param props.rowTone - flags rows (danger / warn) from their effective values
+ * @param props.saveTitle - title of the comment dialog
+ * @param props.toolbar - extra toolbar content (e.g. upload / export buttons)
+ * @returns the rendered grid with toolbar
  */
 export function EditableGrid({
   products,
@@ -157,6 +204,14 @@ export function EditableGrid({
   const [onlyFlagged, setOnlyFlagged] = useState(false);
   const [commentOpen, setCommentOpen] = useState(false);
 
+  /**
+   * Records a cell edit as pending; typing the original value back removes the pending entry.
+   * @param productId - product of the edited row
+   * @param key - column key
+   * @param raw - raw input text
+   * @param original - stored value of the cell
+   * @returns nothing
+   */
   const onEdit = useCallback((productId: number, key: string, raw: string, original: number | null) => {
     setPending((p) => {
       const pid = String(productId);
@@ -336,6 +391,13 @@ export function EditableGrid({
   );
 }
 
+/**
+ * Before/after table of the pending changes shown in the save dialog (first 50 rows).
+ * @param props.changes - pending changes
+ * @param props.products - products, for names
+ * @param props.columns - columns, for labels and "before" values
+ * @returns the rendered summary
+ */
 function ChangeSummary({ changes, products, columns }: { changes: CellChange[]; products: Product[]; columns: GridColumn[] }) {
   const names = useMemo(() => new Map(products.map((p) => [p.id, p.name])), [products]);
   const cols = useMemo(() => new Map(columns.map((c) => [c.key, c])), [columns]);

@@ -37,6 +37,16 @@ SURPLUS = PatternFill("solid", fgColor="E3F4E8")
 
 
 def save(path: Path, header: list[str], rows: list[list]) -> None:
+    """Write one simple upload-style workbook: bold frozen header row, then the data rows.
+
+    Args:
+        path: Output .xlsx file path (overwritten).
+        header: Header row labels, e.g. ["Product Name", "Forecast Quantity"].
+        rows: Data rows, one list of cell values per row.
+
+    Returns:
+        None
+    """
     wb = Workbook()
     ws = wb.active
     ws.append(header)
@@ -52,6 +62,16 @@ def save(path: Path, header: list[str], rows: list[list]) -> None:
 
 
 def main(seed: int) -> None:
+    """Generate all synthetic files: per-region forecasts, inventory, the reference summary and the monthly files.
+
+    Inventory is set below total forecast for a random half of the products (constrained) and above it for the rest.
+
+    Args:
+        seed: Random seed, so the same seed always produces the same files.
+
+    Returns:
+        None
+    """
     rng = random.Random(seed)
 
     # Base demand per product (volume differs by product class), then per-region noise.
@@ -104,6 +124,14 @@ def multi_month(rng: random.Random, forecast: dict, inventory: dict) -> None:
 
     Month 1 uses the single-month numbers; later months drift by -15%..+20% (seasonality), and two new
     products start in the second month. Inventory again mixes short and surplus products per month.
+
+    Args:
+        rng: The seeded random generator shared with `main`.
+        forecast: Single-month forecast per region and product, `{region: {product: qty}}`.
+        inventory: Single-month available inventory per product, `{product: qty}`.
+
+    Returns:
+        None
     """
     products = PRODUCTS + NEW_PRODUCTS
     for r in REGIONS:

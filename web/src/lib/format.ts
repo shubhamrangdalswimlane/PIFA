@@ -2,21 +2,41 @@ import type { QtyMap, Region, Role, StageNumber } from '../api/types';
 
 const nf = new Intl.NumberFormat('en-US');
 
+/**
+ * Formats a quantity with thousands separators.
+ * @param n - quantity
+ * @returns the formatted number, or "—" when missing
+ */
 export function fmtQty(n: number | null | undefined): string {
   return n === null || n === undefined || Number.isNaN(n) ? '—' : nf.format(n);
 }
 
+/**
+ * Formats a change with an explicit sign ("+5", "−3", "0").
+ * @param n - difference
+ * @returns the signed formatted number, or "—" when missing
+ */
 export function fmtDelta(n: number | null | undefined): string {
   if (n === null || n === undefined || Number.isNaN(n)) return '—';
   if (n === 0) return '0';
   return `${n > 0 ? '+' : '−'}${nf.format(Math.abs(n))}`;
 }
 
+/**
+ * CSS class colouring a change: positive, negative or zero.
+ * @param n - difference
+ * @returns 'delta-pos', 'delta-neg' or 'delta-zero'
+ */
 export function deltaClass(n: number | null | undefined): string {
   if (!n) return 'delta-zero';
   return n > 0 ? 'delta-pos' : 'delta-neg';
 }
 
+/**
+ * Formats an ISO timestamp as a short local date and time.
+ * @param iso - ISO date-time string
+ * @returns the formatted date-time, the input if unparsable, or "—" when missing
+ */
 export function fmtTime(iso: string | null | undefined): string {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -56,7 +76,11 @@ export const REGION_CLASS: Record<Region, string> = {
   South: 'r-south',
 };
 
-/** Sum of a quantity map (missing → 0). */
+/**
+ * Sum of a quantity map (missing → 0).
+ * @param m - productId → quantity map
+ * @returns the total quantity
+ */
 export function sumMap(m: QtyMap | null | undefined): number {
   if (!m) return 0;
   let s = 0;
@@ -64,6 +88,12 @@ export function sumMap(m: QtyMap | null | undefined): number {
   return s;
 }
 
+/**
+ * Quantity of one product in a quantity map.
+ * @param m - productId → quantity map
+ * @param productId - product to look up
+ * @returns the quantity (0 when the product is missing), or null when there is no map
+ */
 export function qtyOf(m: QtyMap | null | undefined, productId: number): number | null {
   if (!m) return null;
   return m[String(productId)] ?? 0;

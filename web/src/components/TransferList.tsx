@@ -3,6 +3,16 @@ import type { Transfer } from '../api/types';
 import { fmtQty, fmtTime } from '../lib/format';
 import { Empty, Loading, QueryError, RegionTag, StatusChip } from './ui';
 
+/**
+ * Table of region-to-region unit transfers, newest first, with status, decision and optional per-row actions.
+ * @param props.transfers - transfers to show
+ * @param props.loading - shows a loading message
+ * @param props.error - shows a load error
+ * @param props.canUndo - decides whether a row gets an Undo button
+ * @param props.onUndo - called when Undo is clicked
+ * @param props.actions - extra per-row buttons (e.g. Head of Sales approve / reject)
+ * @returns the rendered table, or a loading / error / empty message
+ */
 export function TransferList({
   transfers,
   loading,

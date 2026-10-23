@@ -15,7 +15,15 @@ interface AuditTableProps {
   limit?: number;
 }
 
-/** Filterable audit trail (FR-H4, FR-A4, FR-S5) backed by GET /api/audit. */
+/**
+ * Filterable audit trail (FR-H4, FR-A4, FR-S5) backed by GET /api/audit: filters by role, month,
+ * entity, region and free text, newest entries first, with an optional Excel export.
+ * @param props.fixedRegion - locks the region filter to this region (Sales Manager history)
+ * @param props.hideRoleFilter - hides the role filter (e.g. own-region history)
+ * @param props.showExport - shows the "Export audit" button (default true)
+ * @param props.limit - maximum number of entries to load (default 500)
+ * @returns the rendered filter bar and audit table
+ */
 export function AuditTable({ fixedRegion, hideRoleFilter, showExport = true, limit = 500 }: AuditTableProps) {
   const [role, setRole] = useState('');
   const [entity, setEntity] = useState('');

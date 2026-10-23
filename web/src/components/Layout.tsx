@@ -11,6 +11,12 @@ import { getPeriod, setPeriod } from '../period';
 import { useToast } from './Toast';
 import { Loading, QueryError } from './ui';
 
+/**
+ * Workflow bar under the header: the six stages (forecast input … published) marked done / current / to do,
+ * plus who has to act next.
+ * @param props.cycle - workflow state of the selected month (undefined while loading)
+ * @returns the rendered stage tracker
+ */
 export function StageTracker({ cycle }: { cycle: Cycle | undefined }) {
   const stage = cycle?.stage ?? 0;
   return (
@@ -46,6 +52,13 @@ export function StageTracker({ cycle }: { cycle: Cycle | undefined }) {
   );
 }
 
+/**
+ * App shell: header with role navigation, month picker, user name and logout. Chooses a month once the
+ * list of months is known (the remembered one if it still exists, else the latest) and renders the page
+ * for that month.
+ * @param props.children - the routed dashboard page
+ * @returns the rendered layout
+ */
 export function Layout({ children }: { children: ReactNode }) {
   const user = useSession();
   const periods = usePeriods();
@@ -63,6 +76,12 @@ export function Layout({ children }: { children: ReactNode }) {
     }
   }, [periods.data, period]);
 
+  /**
+   * Switches the whole app to another month: stores it (sent as `X-Period` from now on) and drops all
+   * cached month-specific data so the new month loads fresh.
+   * @param next - month-year as "YYYY-MM"
+   * @returns nothing
+   */
   const switchTo = (next: string) => {
     setPeriod(next);
     // Every business query belongs to one month: drop them all so the new month loads fresh.
@@ -119,7 +138,11 @@ export function Layout({ children }: { children: ReactNode }) {
   );
 }
 
-/** Stage tracker + dashboard for the selected month; remounted when the month changes. */
+/**
+ * Stage tracker + dashboard for the selected month; remounted when the month changes.
+ * @param props.children - the dashboard page
+ * @returns the stage tracker and page content
+ */
 function PeriodContent({ children }: { children: ReactNode }) {
   const cycle = useCycle();
   return (
@@ -130,6 +153,14 @@ function PeriodContent({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Header month-year selector; users who may open months (Sales Manager, Planner, Admin) can also open a new month for planning.
+ * @param props.periods - months that have a planning cycle
+ * @param props.value - selected month, or null while none is ready
+ * @param props.onChange - called with the month to switch to (also after opening a new one)
+ * @param props.canOpen - shows the "+ Month" button
+ * @returns the rendered picker
+ */
 function PeriodPicker({
   periods,
   value,
@@ -145,6 +176,9 @@ function PeriodPicker({
   const queryClient = useQueryClient();
   const [adding, setAdding] = useState(false);
   const [month, setMonth] = useState('');
+  /**
+   * Opens a new planning month, refreshes the month list, announces it and switches the app to it.
+   */
   const open = useMutation({
     mutationFn: (p: string) => api.createPeriod(p),
     onSuccess: async (p) => {

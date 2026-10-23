@@ -16,6 +16,11 @@ import { REGIONS, type Region } from '../api/types';
 
 type Tab = 'inventory' | 'demand' | 'allocation' | 'files' | 'history';
 
+/**
+ * Planner dashboard: tabs for inventory, demand vs inventory, allocation, ingested files and own change history.
+ * Editing is possible only at stage 3 (Planning); otherwise the page is read-only apart from uploads.
+ * @returns the rendered dashboard page
+ */
 export default function PlannerDashboard() {
   const [tab, setTab] = useState<Tab>('inventory');
   const cycle = useCycle();
@@ -53,11 +58,16 @@ export default function PlannerDashboard() {
   );
 }
 
+/**
+ * Available inventory per product: editable at stage 3, upload (any stage) and export.
+ * @returns the rendered inventory panel
+ */
 function InventoryTab() {
   const cycle = useCycle();
   const products = useProducts();
   const inventory = useInventory();
   const canEdit = cycle.data?.stage === 3;
+  /** Saves inventory cell edits (comment required). */
   const save = useApiMutation(
     ({ changes, comment }: { changes: CellChange[]; comment: string }) =>
       api.putInventory(
@@ -111,6 +121,11 @@ function InventoryTab() {
   );
 }
 
+/**
+ * Demand vs inventory: forecast V1 or V2 per region, total demand, inventory and the gap; products with
+ * more demand than inventory are flagged as constrained.
+ * @returns the rendered demand panel
+ */
 function DemandTab() {
   const forecast = useForecast();
   const inventory = useInventory();
@@ -118,10 +133,20 @@ function DemandTab() {
   const fc = forecast.data;
   const inv = inventory.data?.lines;
   const columns = useMemo<GridColumn[]>(() => demandColumns(fc, version, inv), [fc, version, inv]);
+  /**
+   * Flags a product as constrained when inventory is below demand.
+   * @param eff - value lookup of the row
+   * @returns 'warn' or null
+   */
   const rowTone = useCallback((eff: Eff): RowTone => {
     const g = eff('gap');
     return g !== null && g < 0 ? 'warn' : null;
   }, []);
+  /**
+   * "constrained (gap)" note after the product name for constrained products.
+   * @param eff - value lookup of the row
+   * @returns the flag element, or null
+   */
   const rowNote = useCallback((eff: Eff) => {
     const g = eff('gap');
     return g !== null && g < 0 ? <span className="flag warn">constrained ({g})</span> : null;
@@ -150,6 +175,14 @@ function DemandTab() {
   );
 }
 
+/**
+ * Builds the demand-vs-inventory columns: one demand column per region, total demand, inventory and
+ * inventory minus demand.
+ * @param fc - forecast of the selected month (undefined while loading)
+ * @param version - which forecast version is the demand ('v1' or 'v2')
+ * @param inv - available inventory per product
+ * @returns the grid columns
+ */
 function demandColumns(fc: ForecastResponse | undefined, version: 'v1' | 'v2', inv: QtyMap | undefined): GridColumn[] {
   const regions = fc?.regions ?? [...REGIONS];
   const cols: GridColumn[] = regions.map((r) => ({
@@ -186,6 +219,12 @@ function demandColumns(fc: ForecastResponse | undefined, version: 'v1' | 'v2', i
   return cols;
 }
 
+/**
+ * Allocation work for the Planner: view V1 / V2 / Final, and at stage 3 run auto-allocation (rule R-ALLOC-01,
+ * from forecast V1 or V2), edit V1 cells, upload / export, and approve & send V1 to the Regional Managers.
+ * Rule violations from auto-allocation or a blocked submit (R-ALLOC-02) are shown in a banner.
+ * @returns the rendered allocation panel and dialogs
+ */
 function AllocationTab() {
   const cycle = useCycle();
   const products = useProducts();
@@ -204,10 +243,14 @@ function AllocationTab() {
   const v = version ?? (stage >= 4 && a?.v2 ? (a.final ? 'final' : 'v2') : 'v1');
   const editingV1 = v === 'v1' && canEdit;
 
+  /**
+   * Runs auto-allocation into V1 from the chosen forecast basis; the toast reports violations.
+   */
   const auto = useApiMutation(
     ({ comment, basis }: { comment: string; basis: 1 | 2 }) => api.autoAllocate(comment, basis),
     (r) => `Auto-allocation written to V1${r.violations.length ? ` with ${r.violations.length} violation(s)` : ''}`,
   );
+  /** Saves Allocation V1 cell edits (column key = region; comment required). */
   const save = useApiMutation(
     ({ changes, comment }: { changes: CellChange[]; comment: string }) =>
       api.putAllocationV1(
@@ -216,6 +259,9 @@ function AllocationTab() {
       ),
     (r) => `Saved ${r.updated} allocation cell${r.updated === 1 ? '' : 's'}`,
   );
+  /**
+   * Approves allocation V1 and sends it to the Regional Managers (fails with R-ALLOC-02 violations if over inventory).
+   */
   const submit = useApiMutation((c: string) => api.submitAllocation(c || undefined), 'Allocation V1 approved and sent to Regional Managers');
 
   if (allocation.isLoading || products.isLoading || inventory.isLoading) return <Loading what="allocation" />;
@@ -346,6 +392,10 @@ function AllocationTab() {
   );
 }
 
+/**
+ * Ingested Excel files (UI uploads and SFTP drops), newest first; long messages open in a dialog.
+ * @returns the rendered files panel
+ */
 function FilesTab() {
   const files = useFiles();
   const [msg, setMsg] = useState<string | null>(null);
@@ -362,6 +412,12 @@ function FilesTab() {
   );
 }
 
+/**
+ * Table of ingested files with time, kind, status, path, uploader and message (long messages truncated).
+ * @param props.rows - file records to show
+ * @param props.onMessage - called with the full message when a truncated message is clicked
+ * @returns the rendered table, or an empty message
+ */
 function FilesTable({
   rows,
   onMessage,

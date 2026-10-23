@@ -13,7 +13,22 @@ log = logging.getLogger(__name__)
 
 
 def table(conn: Connection, user: User, kind: str, version: str | None, month: str | None = None) -> tuple[str, str, list, list]:
-    """(filename, sheet, columns, rows) for an export kind, scoped to what the caller may read."""
+    """(filename, sheet, columns, rows) for an export kind, scoped to what the caller may read.
+
+    Args:
+        conn: database connection for this request.
+        user: signed-in caller (from the JWT); a Sales Manager only gets their own region's column.
+        kind: export kind: forecast, inventory, allocation or audit.
+        version: forecast "1"/"2", or allocation "1"/"2"/"final"; defaults to 1.
+        month: audit only: None = the selected month, "all" = every month, or a month-year such as "2026-11".
+
+    Returns:
+        (filename, sheet name, column headers, rows).
+
+    Raises:
+        HTTPException: 422 for an invalid version or month; 403 when a Sales Manager asks for inventory;
+            404 for an unknown export kind.
+    """
     cycle = store.current_cycle(conn)
     names = store.product_names(conn)
     regions = [user.region] if user.role == SM else REGIONS
@@ -59,7 +74,20 @@ def table(conn: Connection, user: User, kind: str, version: str | None, month: s
 
 
 def revision_table(conn: Connection, user: User, region: str | None, rev_no: int) -> tuple[str, str, list, list]:
-    """One region's forecast as it was at version V<rev_no>, in the upload template layout."""
+    """One region's forecast as it was at version V<rev_no>, in the upload template layout.
+
+    Args:
+        conn: database connection for this request.
+        user: signed-in caller (from the JWT).
+        region: region whose forecast version is exported.
+        rev_no: version number (the n of V<n>).
+
+    Returns:
+        (filename, sheet name, column headers, rows) with one row per product.
+
+    Raises:
+        HTTPException: 422 when no valid region is given; 403 or 404 when the caller may not see that version.
+    """
     if region not in REGIONS:
         raise HTTPException(422, "region is required to export a forecast version")
     from .routes_workflow import visible_revision  # local import: routes_workflow imports this module
@@ -70,7 +98,17 @@ def revision_table(conn: Connection, user: User, region: str | None, rev_no: int
 
 
 def write_published_export(conn: Connection, user: User) -> None:
-    """Best-effort copy of the published allocation to SFTP /outbound; failures are audited, not raised."""
+    """Best-effort copy of the published allocation to SFTP /outbound; failures are audited, not raised.
+
+    The outcome is recorded in file_ingest and the audit log, then committed.
+
+    Args:
+        conn: database connection for this request.
+        user: Head of Sales who published the allocation.
+
+    Returns:
+        None
+    """
     cycle = store.current_cycle(conn)
     try:
         filename, sheet, cols, rows = table(conn, user, "allocation", "final")

@@ -10,10 +10,25 @@ import { ToastProvider } from './components/Toast';
 import { Loading } from './components/ui';
 import { ROLE_ROUTE } from './lib/format';
 
+/**
+ * Sales Manager dashboard, loaded on first visit (code-split).
+ */
 const SalesDashboard = lazy(() => import('./pages/SalesDashboard'));
+/**
+ * Regional Manager dashboard, loaded on first visit (code-split).
+ */
 const RegionalDashboard = lazy(() => import('./pages/RegionalDashboard'));
+/**
+ * Planner dashboard, loaded on first visit (code-split).
+ */
 const PlannerDashboard = lazy(() => import('./pages/PlannerDashboard'));
+/**
+ * Head of Sales dashboard, loaded on first visit (code-split).
+ */
 const HeadDashboard = lazy(() => import('./pages/HeadDashboard'));
+/**
+ * Admin dashboard, loaded on first visit (code-split).
+ */
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
 
 const queryClient = new QueryClient({
@@ -21,11 +36,23 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 15_000,
       refetchOnWindowFocus: true,
+      /**
+       * Retries failed queries at most twice, but never for auth, permission, not-found, conflict or validation errors.
+       * @param count - number of failures so far
+       * @param err - the error of the last attempt
+       * @returns true to retry
+       */
       retry: (count, err) => !(err instanceof ApiError && [401, 403, 404, 409, 422].includes(err.status)) && count < 2,
     },
   },
 });
 
+/**
+ * Route guard: renders the page only for users holding the required role, otherwise a "not available" panel.
+ * @param props.role - role required for this page
+ * @param props.children - the guarded page
+ * @returns the page or the not-available panel
+ */
 function Guard({ role, children }: { role: Role; children: ReactNode }) {
   const user = useSession();
   if (!user.roles.includes(role)) {
@@ -42,6 +69,10 @@ function Guard({ role, children }: { role: Role; children: ReactNode }) {
   return <>{children}</>;
 }
 
+/**
+ * Start route: redirects to the dashboard of the user's primary role, or explains that no PIFA role is assigned.
+ * @returns a redirect or the no-role panel
+ */
 function Home() {
   const user = useSession();
   if (!user.role) {
@@ -58,6 +89,11 @@ function Home() {
   return <Navigate to={ROLE_ROUTE[user.role]} replace />;
 }
 
+/**
+ * Root component: React Query, toasts, session context, router and the role dashboards (lazy-loaded) inside the layout.
+ * @param props.user - the signed-in user
+ * @returns the whole application
+ */
 export function App({ user }: { user: SessionUser }) {
   return (
     <QueryClientProvider client={queryClient}>

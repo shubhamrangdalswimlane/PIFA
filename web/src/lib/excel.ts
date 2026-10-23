@@ -1,6 +1,10 @@
 import { REGIONS, type FileKind, type Product, type QtyMap, type Region } from '../api/types';
 
 // SheetJS is loaded on demand to keep the initial bundle small.
+/**
+ * Loads the SheetJS library on demand.
+ * @returns a Promise resolving to the `xlsx` module
+ */
 const loadXlsx = () => import('xlsx');
 
 export const FILE_COLUMNS: Record<FileKind, string[]> = {
@@ -12,12 +16,24 @@ export const FILE_COLUMNS: Record<FileKind, string[]> = {
 /** Values for template prefill / preview "before": forecast & inventory use key `qty`. */
 export type CurrentValues = Record<string, Record<string, number>>; // productId → column → qty
 
+/**
+ * Current values of a single-quantity file (forecast or inventory) for the upload preview "before" column.
+ * @param products - all products
+ * @param map - productId → quantity (missing products count as 0)
+ * @returns productId → { qty }
+ */
 export function currentFromQty(products: Product[], map: QtyMap | null | undefined): CurrentValues {
   const out: CurrentValues = {};
   for (const p of products) out[String(p.id)] = { qty: map?.[String(p.id)] ?? 0 };
   return out;
 }
 
+/**
+ * Current values of an allocation (product x region) for the upload preview "before" columns.
+ * @param products - all products
+ * @param m - region → (productId → quantity)
+ * @returns productId → { North, East, West, South }
+ */
 export function currentFromMatrix(products: Product[], m: Partial<Record<Region, QtyMap>> | null | undefined): CurrentValues {
   const out: CurrentValues = {};
   for (const p of products) {
@@ -28,6 +44,11 @@ export function currentFromMatrix(products: Product[], m: Partial<Record<Region,
   return out;
 }
 
+/**
+ * Value columns of a file type: the four regions for allocation, otherwise `qty`.
+ * @param kind - file type
+ * @returns the value keys used in `CurrentValues` / `ParsedRow.values`
+ */
 export function valueKeys(kind: FileKind): string[] {
   return kind === 'allocation' ? [...REGIONS] : ['qty'];
 }
@@ -50,12 +71,26 @@ export interface ParseResult {
   months: string[];
 }
 
+/**
+ * Normalises a header or product name for loose matching (lower case, `_`/`-` as spaces, single spaces).
+ * @param s - cell value
+ * @returns the normalised string
+ */
 const norm = (s: unknown) => String(s ?? '').trim().toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 
-/** Month-year cell → "YYYY-MM" (same formats the server accepts), or null if not a month-year. */
+/**
+ * Month-year cell → "YYYY-MM" (same formats the server accepts), or null if not a month-year.
+ * @param v - cell value (Excel date, "2026-11", "11/2026", "Nov-2026", "November 26" …)
+ * @returns "YYYY-MM", or null
+ */
 export function parseMonth(v: unknown): string | null {
+  /**
+   * @param y - year (2000–2100)
+   * @param m - month (1–12)
+   * @returns "YYYY-MM", or null when out of range
+   */
   const fmt = (y: number, m: number) => (m >= 1 && m <= 12 && y >= 2000 && y <= 2100 ? `${y}-${String(m).padStart(2, '0')}` : null);
   if (v instanceof Date) return fmt(v.getFullYear(), v.getMonth() + 1);
   const s = String(v ?? '').trim().toLowerCase();
@@ -71,7 +106,14 @@ export function parseMonth(v: unknown): string | null {
   return null;
 }
 
-/** Parses the first sheet in the browser for the before/after preview. */
+/**
+ * Parses the first sheet in the browser for the before/after preview: finds the columns, matches
+ * product names, validates quantities (whole numbers >= 0) and Month cells, and lists duplicates.
+ * @param kind - file type, decides the expected value columns
+ * @param file - the chosen .xlsx file
+ * @param products - known products for name matching
+ * @returns a Promise resolving to `ParseResult` (rows, missing columns, duplicates, months)
+ */
 export async function parseWorkbook(kind: FileKind, file: File, products: Product[]): Promise<ParseResult> {
   const XLSX = await loadXlsx();
   const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true }); // Month cells as Date objects
@@ -80,6 +122,10 @@ export async function parseWorkbook(kind: FileKind, file: File, products: Produc
   const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, blankrows: false, defval: null, raw: true });
   const header = (aoa[0] ?? []).map(norm);
 
+  /**
+   * @param names - accepted header spellings
+   * @returns index of the first matching column, or -1
+   */
   const findCol = (...names: string[]) => header.findIndex((h) => names.map(norm).includes(h));
   const nameIdx = findCol('Product Name', 'ProductName', 'Product');
   const monthIdx = findCol('Month', 'Month Year', 'MonthYear', 'Period', 'Forecast Month');

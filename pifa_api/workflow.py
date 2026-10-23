@@ -8,6 +8,17 @@ from .domain import REGIONS, STAGES, conflict
 
 
 def cycle_view(conn: Connection) -> dict:
+    """Snapshot of the selected month's planning cycle for the dashboard.
+
+    Shows the stage, forecast and allocation statuses per region, the regional confirmations and who must act next.
+
+    Args:
+        conn: database connection for this request.
+
+    Returns:
+        {"id", "name", "period", "periodLabel", "stage", "stageKey", "forecast": {region: {"v1", "v2"}},
+        "allocation": {"v1", "v2", "final"}, "confirmations": {region: {"by", "at"} | None}, "nextActor": str}.
+    """
     cycle = store.current_cycle(conn)
     cid = cycle["id"]
     fv = conn.execute("SELECT region, version_no, status FROM forecast_version WHERE cycle_id = %s", (cid,)).fetchall()
@@ -38,6 +49,16 @@ def cycle_view(conn: Connection) -> dict:
 
 
 def _next_actor(stage: int, forecast: dict, confirmations: dict) -> str:
+    """Describe who has to act next at the given stage (e.g. which regions' Sales Managers still need to submit).
+
+    Args:
+        stage: current stage number (1-6).
+        forecast: per-region {"v1", "v2"} forecast statuses from cycle_view.
+        confirmations: per-region confirmation, or None when the region has not confirmed.
+
+    Returns:
+        Human-readable text such as "Sales Managers: North, West".
+    """
     if stage == 1:
         waiting = [r for r in REGIONS if forecast[r]["v1"] != "submitted"]
         return f"Sales Managers: {', '.join(waiting)}" if waiting else "Regional Managers"
@@ -61,12 +82,36 @@ def _next_actor(stage: int, forecast: dict, confirmations: dict) -> str:
 
 
 def require_stage(cycle: dict, *stages: int) -> None:
+    """Guard that an action is allowed in the cycle's current stage.
+
+    Args:
+        cycle: cycle row.
+        *stages: stage numbers in which the action is allowed.
+
+    Returns:
+        None
+
+    Raises:
+        HTTPException: 409 when the cycle is in another stage.
+    """
     if cycle["stage"] not in stages:
         allowed = " or ".join(STAGES[s] for s in stages)
         raise conflict(f"Not allowed at stage {STAGES[cycle['stage']]}; requires {allowed}")
 
 
 def _advance(conn: Connection, cycle: dict, to_stage: int, user: User | None, comment: str) -> None:
+    """Move the cycle to a new stage and audit the transition.
+
+    Args:
+        conn: database connection for this request.
+        cycle: cycle row; its "stage" is updated in place.
+        to_stage: new stage number.
+        user: acting user, or None for the system.
+        comment: reason recorded in the audit log.
+
+    Returns:
+        None
+    """
     store.set_stage(conn, cycle["id"], to_stage)
     cycle["stage"] = to_stage
     store.audit(conn, user, "workflow", cycle_id=cycle["id"], region=None, version=STAGES[to_stage],
@@ -76,6 +121,21 @@ def _advance(conn: Connection, cycle: dict, to_stage: int, user: User | None, co
 # --- forecast (stages 1-2) -----------------------------------------------------------------------
 
 def submit_forecast(conn: Connection, cycle: dict, region: str, user: User, comment: str) -> None:
+    """Submit a region's Sales Manager forecast (V1) for regional review.
+
+    Marks it submitted, records the submitted version (snapshotting one if nothing was saved) and starts the Regional
+    Manager's revision (V2) from it. The cycle moves to stage 2 once all four regions have submitted.
+
+    Args:
+        conn: database connection for this request.
+        cycle: locked cycle row.
+        region: region being submitted.
+        user: submitting user.
+        comment: reason recorded in the audit log.
+
+    Returns:
+        None
+    """
     v1 = store.ensure_forecast_version(conn, cycle["id"], region, 1)
     rev_no = v1["rev_no"]
     if rev_no is None:  # submitted without any saved edit: snapshot it so the submitted version has a number
@@ -93,6 +153,18 @@ def submit_forecast(conn: Connection, cycle: dict, region: str, user: User, comm
 
 
 def approve_forecast(conn: Connection, cycle: dict, region: str, user: User, comment: str) -> None:
+    """Regional Manager approves a region's forecast V2; once all four regions are approved the cycle moves to stage 3 (Planning).
+
+    Args:
+        conn: database connection for this request.
+        cycle: locked cycle row.
+        region: region being approved.
+        user: approving user.
+        comment: reason recorded in the audit log.
+
+    Returns:
+        None
+    """
     v2 = store.forecast_version(conn, cycle["id"], region, 2)
     store.set_forecast_status(conn, v2["id"], "approved", user.username)
     store.audit(conn, user, "forecast", cycle_id=cycle["id"], region=region, version=f"V{v2['rev_no']}", comment=comment, status="approved")
@@ -101,6 +173,18 @@ def approve_forecast(conn: Connection, cycle: dict, region: str, user: User, com
 
 
 def reject_forecast(conn: Connection, cycle: dict, region: str, user: User, comment: str) -> None:
+    """Regional Manager rejects a region's forecast: V1 and V2 become rejected so the Sales Manager can revise and resubmit.
+
+    Args:
+        conn: database connection for this request.
+        cycle: locked cycle row.
+        region: region being rejected.
+        user: rejecting user.
+        comment: reason for the Sales Manager.
+
+    Returns:
+        None
+    """
     v1 = store.forecast_version(conn, cycle["id"], region, 1)
     v2 = store.forecast_version(conn, cycle["id"], region, 2)
     store.set_forecast_status(conn, v1["id"], "rejected", user.username)
@@ -109,6 +193,17 @@ def reject_forecast(conn: Connection, cycle: dict, region: str, user: User, comm
 
 
 def _all_forecast(conn: Connection, cycle_id: int, version_no: int, status: str) -> bool:
+    """Check whether all four regions have the given forecast version in the given status.
+
+    Args:
+        conn: database connection for this request.
+        cycle_id: planning cycle.
+        version_no: 1 or 2.
+        status: status to look for, e.g. "submitted".
+
+    Returns:
+        True when every region matches.
+    """
     row = conn.execute(
         "SELECT count(*) AS n FROM forecast_version WHERE cycle_id = %s AND version_no = %s AND status = %s",
         (cycle_id, version_no, status),
@@ -119,7 +214,17 @@ def _all_forecast(conn: Connection, cycle_id: int, version_no: int, status: str)
 # --- allocation (stages 3-5) ---------------------------------------------------------------------
 
 def allocation_models(conn: Connection, cycle_id: int, alloc: store.AllocMap, demand_version: int = 2) -> list[dict]:
-    """Facts for the business rules: one entry per product with inventory, demand and allocation per region."""
+    """Facts for the business rules: one entry per product with inventory, demand and allocation per region.
+
+    Args:
+        conn: database connection for this request.
+        cycle_id: planning cycle.
+        alloc: allocation per region, {region: {product_id: qty}}.
+        demand_version: forecast version used as demand (1 or 2).
+
+    Returns:
+        list of {"product", "inventory", "demand": {region: qty}, "allocated": {region: qty}}.
+    """
     names = store.product_names(conn)
     snap = store.inventory_snapshot(conn, cycle_id)
     inventory = store.inventory_lines(conn, snap["id"] if snap else None)
@@ -136,7 +241,19 @@ def allocation_models(conn: Connection, cycle_id: int, alloc: store.AllocMap, de
 
 
 def validate_allocation(conn: Connection, cycle_id: int, alloc: store.AllocMap) -> None:
-    """R-ALLOC-02 (business rules): no model may be allocated above available inventory."""
+    """R-ALLOC-02 (business rules): no model may be allocated above available inventory.
+
+    Args:
+        conn: database connection for this request.
+        cycle_id: planning cycle.
+        alloc: allocation per region, {region: {product_id: qty}}.
+
+    Returns:
+        None
+
+    Raises:
+        HTTPException: 422 with the violations when any model is allocated above its inventory.
+    """
     clients.enforce(
         "allocation",
         {"mode": "VALIDATE", "config": store.get_rule_config(conn), "models": allocation_models(conn, cycle_id, alloc)},
@@ -145,6 +262,22 @@ def validate_allocation(conn: Connection, cycle_id: int, alloc: store.AllocMap) 
 
 
 def submit_allocation(conn: Connection, cycle: dict, user: User, comment: str) -> None:
+    """Planner approves allocation V1 (stage 3) and hands it to the Regional Managers.
+
+    Checks R-ALLOC-02, copies V1 into V2 for regional change, clears confirmations and moves the cycle to stage 4.
+
+    Args:
+        conn: database connection for this request.
+        cycle: locked cycle row.
+        user: Planner.
+        comment: reason recorded in the audit log.
+
+    Returns:
+        None
+
+    Raises:
+        HTTPException: 422 when V1 exceeds the available inventory.
+    """
     v1 = store.ensure_allocation_version(conn, cycle["id"], "1")
     validate_allocation(conn, cycle["id"], store.allocation_lines(conn, v1["id"]))
     store.set_allocation_status(conn, v1["id"], "approved")
@@ -157,6 +290,18 @@ def submit_allocation(conn: Connection, cycle: dict, user: User, comment: str) -
 
 
 def confirm_region(conn: Connection, cycle: dict, region: str, user: User, comment: str) -> None:
+    """Regional Manager confirms allocation V2 for a region (stage 4); once all four regions confirm the cycle moves to stage 5.
+
+    Args:
+        conn: database connection for this request.
+        cycle: locked cycle row.
+        region: region being confirmed.
+        user: confirming user.
+        comment: reason recorded in the audit log.
+
+    Returns:
+        None
+    """
     conn.execute(
         """INSERT INTO region_confirmation (cycle_id, region, confirmed_by) VALUES (%s, %s, %s)
            ON CONFLICT (cycle_id, region) DO UPDATE SET confirmed_by = EXCLUDED.confirmed_by, confirmed_at = now()""",
@@ -168,6 +313,23 @@ def confirm_region(conn: Connection, cycle: dict, region: str, user: User, comme
 
 
 def publish(conn: Connection, cycle: dict, user: User, comment: str) -> None:
+    """Head of Sales approves and publishes the final allocation.
+
+    Re-checks R-ALLOC-02 on V2, copies it to "final", approves the still-pending transfers, records the approval and
+    moves the cycle to stage 6 (Published).
+
+    Args:
+        conn: database connection for this request.
+        cycle: locked cycle row.
+        user: Head of Sales.
+        comment: reason recorded with the approval.
+
+    Returns:
+        None
+
+    Raises:
+        HTTPException: 422 when V2 exceeds the available inventory.
+    """
     v2 = store.allocation_version(conn, cycle["id"], "2")
     alloc = store.allocation_lines(conn, v2["id"])
     validate_allocation(conn, cycle["id"], alloc)
@@ -188,6 +350,17 @@ def publish(conn: Connection, cycle: dict, user: User, comment: str) -> None:
 
 
 def reject_final(conn: Connection, cycle: dict, user: User, comment: str) -> None:
+    """Head of Sales rejects the final allocation: confirmations are cleared and the cycle returns to stage 4 (Regional change).
+
+    Args:
+        conn: database connection for this request.
+        cycle: locked cycle row.
+        user: Head of Sales.
+        comment: reason for the Regional Managers.
+
+    Returns:
+        None
+    """
     store.record_approval(conn, cycle["id"], "allocation", "REJECT", comment, user)
     store.clear_confirmations(conn, cycle["id"])
     store.audit(conn, user, "approval", cycle_id=cycle["id"], region=None, version="V2", comment=comment, status="rejected")
@@ -197,6 +370,23 @@ def reject_final(conn: Connection, cycle: dict, user: User, comment: str) -> Non
 # --- Admin overrides (FR-A2), each one audited ---------------------------------------------------
 
 def admin_advance(conn: Connection, cycle: dict, user: User, comment: str) -> None:
+    """Admin override that completes the current stage's open actions on the users' behalf so the cycle moves on.
+
+    The override and every action it performs are audited.
+
+    Args:
+        conn: database connection for this request.
+        cycle: locked cycle row.
+        user: Admin.
+        comment: reason for the override.
+
+    Returns:
+        None
+
+    Raises:
+        HTTPException: 409 at stage 5 (only the Head of Sales may approve) and at stage 6 (already published);
+            422 when allocation V1 exceeds inventory at stage 3.
+    """
     stage = cycle["stage"]
     store.audit(conn, user, "workflow", cycle_id=cycle["id"], region=None, version=STAGES[stage], comment=comment, status="override")
     if stage == 1:
@@ -228,7 +418,16 @@ def admin_advance(conn: Connection, cycle: dict, user: User, comment: str) -> No
 
 
 def admin_reset(conn: Connection, user: User, comment: str) -> dict:
-    """Restart the selected month: a new empty cycle for the same month-year at stage 1."""
+    """Restart the selected month: a new empty cycle for the same month-year at stage 1.
+
+    Args:
+        conn: database connection for this request.
+        user: Admin.
+        comment: reason for the reset.
+
+    Returns:
+        The new cycle row dict.
+    """
     p = store.current_cycle(conn)["period"]
     cycle = conn.execute(
         "INSERT INTO cycle (name, stage, period) VALUES (%s || ' (restart ' || to_char(now(), 'DD Mon HH24:MI') || ')', 1, %s) RETURNING *",

@@ -18,18 +18,38 @@ interface ToastApi {
 
 const ToastContext = createContext<ToastApi | null>(null);
 
+/**
+ * Access to the toast notifications; throws when used outside `ToastProvider`.
+ * @returns functions to show success, info and error toasts
+ */
 export function useToast(): ToastApi {
   const ctx = useContext(ToastContext);
   if (!ctx) throw new Error('useToast outside ToastProvider');
   return ctx;
 }
 
+/**
+ * Provides toast notifications to the app and renders them (at most five; toasts with rule violations
+ * or row errors stay until dismissed, others disappear after a few seconds).
+ * @param props.children - the app content
+ * @returns the provider with the toast stack
+ */
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([]);
   const nextId = useRef(1);
 
+  /**
+   * Removes a toast.
+   * @param id - toast id
+   * @returns nothing
+   */
   const dismiss = useCallback((id: number) => setItems((xs) => xs.filter((x) => x.id !== id)), []);
 
+  /**
+   * Adds a toast and schedules its automatic dismissal when it has no detail list.
+   * @param item - toast kind, title and optional violations / row errors
+   * @returns nothing
+   */
   const push = useCallback(
     (item: Omit<ToastItem, 'id'>) => {
       const id = nextId.current++;
@@ -44,6 +64,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     () => ({
       success: (title) => push({ kind: 'success', title }),
       info: (title) => push({ kind: 'info', title }),
+      /**
+       * Shows an error toast; an `ApiError` also lists its rule violations and row errors.
+       * @param err - any thrown value
+       * @returns nothing
+       */
       error: (err) => {
         if (err instanceof ApiError) {
           push({ kind: 'error', title: err.message, violations: err.violations, errors: err.errors });
@@ -75,7 +100,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/** Readable list of rule violations and file row errors. */
+/**
+ * Readable list of rule violations and file row errors.
+ * @param props.violations - business-rule violations (rule id, product, region, message)
+ * @param props.errors - Excel row errors (row number, message)
+ * @returns the rendered list, or null when there is nothing to show
+ */
 export function ProblemList({ violations, errors }: { violations?: Violation[]; errors?: RowError[] }) {
   if (!violations?.length && !errors?.length) return null;
   return (

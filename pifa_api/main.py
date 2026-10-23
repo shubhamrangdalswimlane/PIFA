@@ -23,6 +23,15 @@ app.add_middleware(
 
 @app.middleware("http")
 async def security_headers(request, call_next):
+    """HTTP middleware that adds `X-Content-Type-Options: nosniff` and `Cache-Control: no-store` to every response.
+
+    Args:
+        request: incoming HTTP request.
+        call_next: next handler in the middleware chain.
+
+    Returns:
+        The downstream response with the headers set (values already present are kept).
+    """
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Cache-Control", "no-store")
@@ -31,6 +40,11 @@ async def security_headers(request, call_next):
 
 @app.get("/api/health")
 def health():
+    """Unauthenticated liveness check.
+
+    Returns:
+        {"status": "UP"}
+    """
     return {"status": "UP"}
 
 
