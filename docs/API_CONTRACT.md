@@ -59,7 +59,7 @@ Forecast statuses: `draft | submitted | approved | rejected`. Allocation statuse
 
 → `{"updated": 1, "revision": 6}`. Every save that changes at least one line (cell edits, one Excel file, or a restore) creates the region's next **version** `V<n>` — an immutable snapshot of the whole region forecast. Numbers run per cycle and region across both roles (Sales Manager V1…V5, then the Regional Manager continues V6, V7…). `revision` is `null` when nothing changed.
 
-`GET /api/forecast` also returns `status[region].v1Rev` / `v2Rev`: the version each working copy holds (Sales Manager working copy / Regional Manager revision), and `v1SubmittedRev`: the version the Sales Manager submitted.
+`GET /api/forecast` also returns `status[region].rejection` (`{"by", "comment", "at"}` while the forecast is rejected, so the Sales Manager sees the reason) and `status[region].v1Rev` / `v2Rev`: the version each working copy holds (Sales Manager working copy / Regional Manager revision), and `v1SubmittedRev`: the version the Sales Manager submitted.
 
 The Sales Manager's working forecast is editable at **every stage** (cell edits, uploads, restores); each save is a new version.
 - While the region is in review (submitted, stage 1–2), each new Sales Manager version becomes the submitted version immediately: the Regional Manager's revision restarts from it (their earlier revision stays in the history) and an approval is withdrawn (`v2` back to `draft`).
@@ -68,7 +68,7 @@ The Sales Manager's working forecast is editable at **every stage** (cell edits,
 
 The Regional Manager edits their region (`PUT ?version=2`) throughout stage 2, also after approving it; such an edit sets it back to `draft` so it is approved again.
 
-`GET /api/forecast/{region}/revisions` (Sales Manager: own region) → newest first
+`GET /api/forecast/{region}/revisions` → newest first. Sales and Regional Managers get only the versions they saved themselves (Sales Manager: own region); Planner, Head and Admin get all. The same rule applies to opening, restoring and exporting a version (`404` for a version you cannot see).
 ```json
 [{"revNo": 6, "label": "V6", "stage": 2, "source": "edit" | "upload" | "submit" | "restore", "fileName": "north_q4.xlsx" | null,
   "createdBy": "rm.north", "role": "REGIONAL_MANAGER", "comment": "...", "changed": 3, "total": 1240, "createdAt": "..."}]
@@ -151,7 +151,7 @@ Head of Sales decisions (stage 5, R-APPR-01). `Transfer` also carries `decidedBy
 
 ### Audit
 
-`GET /api/audit?role=&entity=&region=&q=&limit=500` → `[AuditEntry]` (Sales Manager: own region only)
+`GET /api/audit?role=&entity=&region=&q=&limit=500` → `[AuditEntry]`. Sales Manager, Regional Manager and Planner get only the entries they made themselves; Head of Sales and Admin get all. `GET /api/export/audit` uses the same scope.
 ```json
 {"id": 1, "ts": "...", "username": "sm.north", "role": "SALES_MANAGER", "region": "North", "entity": "forecast",
  "version": "V1", "productId": 1, "product": "Model A", "beforeQty": 0, "afterQty": 120, "comment": "...", "status": "draft"}

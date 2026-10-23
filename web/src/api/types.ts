@@ -50,6 +50,14 @@ export interface RegionForecastStatus {
   v2Rev?: number | null;
   /** Version the Sales Manager submitted; reviewers and planning see this one. */
   v1SubmittedRev?: number | null;
+  /** Latest Regional Manager rejection while the forecast is rejected (shown to the Sales Manager). */
+  rejection?: Rejection | null;
+}
+
+export interface Rejection {
+  by: string;
+  comment: string | null;
+  at: string;
 }
 
 export type RevisionSource = 'edit' | 'upload' | 'submit' | 'restore';

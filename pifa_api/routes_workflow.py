@@ -87,6 +87,7 @@ def get_forecast(user: User = Depends(require_role(*EVERYONE)), conn: Connection
             "v1": v1["status"] if v1 else None, "v2": v2["status"] if v2 else None,
             "v1Rev": v1["rev_no"] if v1 else None, "v2Rev": v2["rev_no"] if v2 else None,
             "v1SubmittedRev": v1["submitted_rev"] if v1 else None,
+            "rejection": store.latest_rejection(conn, cycle["id"], r) if v1 and v1["status"] == "rejected" else None,
         }
     return out
 
@@ -176,19 +177,25 @@ def list_revisions(region: str, user: User = Depends(require_role(*EVERYONE)), c
     check_region(region)
     if not user.can_read_region(region):
         raise forbidden("You can only see your own region")
-    return store.revisions(conn, store.current_cycle(conn)["id"], region)
+    return store.revisions(conn, store.current_cycle(conn)["id"], region, user.username if user.own_versions_only else None)
 
 
-@router.get("/forecast/{region}/revisions/{rev_no}")
-def get_revision(region: str, rev_no: int, user: User = Depends(require_role(*EVERYONE)), conn: Connection = Depends(get_db)):
+def visible_revision(conn: Connection, user: User, region: str, rev_no: int) -> tuple[dict, store.QtyMap]:
+    """A version the caller may open: Sales/Regional Managers only their own, others any (Sales Manager: own region)."""
     check_region(region)
     if not user.can_read_region(region):
         raise forbidden("You can only see your own region")
     cycle_id = store.current_cycle(conn)["id"]
-    lines = store.revision_lines(conn, cycle_id, region, rev_no)
-    if lines is None:
-        raise HTTPException(404, f"{region} has no version V{rev_no}")
-    meta = next(r for r in store.revisions(conn, cycle_id, region) if r["revNo"] == rev_no)
+    meta = next((r for r in store.revisions(conn, cycle_id, region, user.username if user.own_versions_only else None)
+                 if r["revNo"] == rev_no), None)
+    if meta is None:
+        raise HTTPException(404, f"{region} has no version V{rev_no} that you can see")
+    return meta, store.revision_lines(conn, cycle_id, region, rev_no)
+
+
+@router.get("/forecast/{region}/revisions/{rev_no}")
+def get_revision(region: str, rev_no: int, user: User = Depends(require_role(*EVERYONE)), conn: Connection = Depends(get_db)):
+    meta, lines = visible_revision(conn, user, region, rev_no)
     return meta | {"lines": _str_keys(lines)}
 
 
@@ -196,10 +203,7 @@ def get_revision(region: str, rev_no: int, user: User = Depends(require_role(*EV
 def restore_revision(region: str, rev_no: int, body: CommentBody, user: User = Depends(require_role(SM, RM)),
                      conn: Connection = Depends(get_db)):
     """Copy an older version's quantities into the caller's working stage; the result is a new version."""
-    check_region(region)
-    lines = store.revision_lines(conn, store.current_cycle(conn)["id"], region, rev_no)
-    if lines is None:
-        raise HTTPException(404, f"{region} has no version V{rev_no}")
+    _, lines = visible_revision(conn, user, region, rev_no)
     comment = require_comment(body.comment, "A restore")
     changes = {pid: lines.get(pid, 0) for pid in store.product_names(conn)}
     updated, new_rev = apply_forecast_changes(conn, user, region, 1 if user.role == SM else 2, changes,

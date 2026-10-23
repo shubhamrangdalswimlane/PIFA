@@ -129,9 +129,12 @@ def set_version_rev(conn: Connection, version_id: int, rev_no: int | None) -> No
     conn.execute("UPDATE forecast_version SET rev_no = %s WHERE id = %s", (rev_no, version_id))
 
 
-def revisions(conn: Connection, cycle_id: int, region: str) -> list[dict]:
+def revisions(conn: Connection, cycle_id: int, region: str, created_by: str | None = None) -> list[dict]:
+    """Versions of a region's forecast, newest first; only those `created_by` a user when given."""
     rows = conn.execute(
-        "SELECT * FROM forecast_revision WHERE cycle_id = %s AND region = %s ORDER BY rev_no DESC", (cycle_id, region)
+        """SELECT * FROM forecast_revision WHERE cycle_id = %s AND region = %s AND (%s::text IS NULL OR created_by = %s)
+           ORDER BY rev_no DESC""",
+        (cycle_id, region, created_by, created_by),
     )
     return [
         {
@@ -164,6 +167,17 @@ def submitted_lines(conn: Connection, fv: dict) -> QtyMap:
         if lines is not None:
             return lines
     return forecast_lines(conn, fv["id"])
+
+
+def latest_rejection(conn: Connection, cycle_id: int, region: str) -> dict | None:
+    """Most recent Regional Manager rejection of a region's forecast (shown to its Sales Manager)."""
+    row = conn.execute(
+        """SELECT username, comment, ts FROM audit_log
+           WHERE cycle_id = %s AND region = %s AND entity = 'forecast' AND status = 'rejected'
+           ORDER BY id DESC LIMIT 1""",
+        (cycle_id, region),
+    ).fetchone()
+    return {"by": row["username"], "comment": row["comment"], "at": row["ts"].isoformat()} if row else None
 
 
 def forecast_totals(conn: Connection, cycle_id: int, version_no: int) -> dict[str, dict[int, int]]:
@@ -318,12 +332,13 @@ def get_rule_config(conn: Connection) -> dict:
 
 def audit_entries(conn: Connection, user: User, role: str | None = None, entity: str | None = None,
                   region: str | None = None, q: str | None = None, limit: int = 500) -> list[dict]:
-    """Audit trail for the current cycle (plus cycle-less rows), scoped to the caller's visibility."""
+    """Audit trail for the current cycle (plus cycle-less rows), scoped to the caller's visibility:
+    Sales Manager, Regional Manager and Planner see only their own changes; Head and Admin see all."""
     where, args = ["(a.cycle_id = %s OR a.cycle_id IS NULL)"], [current_cycle(conn)["id"]]
-    if user.role == "SALES_MANAGER":
-        where.append("a.region = %s")
-        args.append(user.region)
-    elif region:
+    if user.own_history_only:
+        where.append("a.username = %s")
+        args.append(user.username)
+    if region:
         where.append("a.region = %s")
         args.append(region)
     if role:

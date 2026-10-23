@@ -24,6 +24,16 @@ class User:
     def can_read_region(self, region: str) -> bool:
         return self.role != SM or region == self.region
 
+    @property
+    def own_history_only(self) -> bool:
+        """Sales Manager, Regional Manager and Planner see only their own changes; Head and Admin see everything."""
+        return self.role in (SM, RM, PLANNER)
+
+    @property
+    def own_versions_only(self) -> bool:
+        """Sales and Regional Managers see only forecast versions they created."""
+        return self.role in (SM, RM)
+
 
 @lru_cache
 def _jwks() -> jwt.PyJWKClient:

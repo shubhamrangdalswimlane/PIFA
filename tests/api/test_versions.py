@@ -81,5 +81,6 @@ def test_regional_manager_edits_sales_managers_final_version(api, regions):
     # V1 (Sales Manager working copy) is untouched by the Regional Manager.
     assert api.get("/api/forecast").json()["v1"]["North"] == {str(A): 12}
 
-    # Untouched regions got a version at submit time.
+    # Untouched regions got a version at submit time (seen by the Head, who sees every version).
+    api.as_("head")
     assert [r["source"] for r in api.get("/api/forecast/East/revisions").json()] == ["submit"]

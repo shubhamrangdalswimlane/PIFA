@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { api } from '../api/client';
-import { useApiMutation, useAudit, useCycle, useForecast, useNextRevision } from '../api/hooks';
-import type { QtyChange } from '../api/types';
+import { useApiMutation, useCycle, useForecast, useNextRevision } from '../api/hooks';
+import type { QtyChange, Rejection } from '../api/types';
 import { useSession } from '../auth/session';
 import { AuditTable } from '../components/AuditTable';
 import { EditableGrid, type CellChange, type GridColumn } from '../components/EditableGrid';
@@ -82,7 +82,7 @@ export default function SalesDashboard() {
         </div>
       </div>
 
-      {v1Status === 'rejected' && <RejectionBanner region={region} />}
+      {v1Status === 'rejected' && <RejectionBanner rejection={status?.rejection} />}
       {submittedRev && v1Status !== 'rejected' && salesRev !== submittedRev && (
         <Banner kind="info">
           You have saved changes after submitting: V{submittedRev} is with the Regional Manager, your current version is V{salesRev}. Later
@@ -127,13 +127,15 @@ export default function SalesDashboard() {
       <VersionHistory
         region={region}
         products={products}
+        title={`My versions — ${region}`}
+        subtitle="Only the versions you saved. Every save (dashboard edit or Excel file) creates the next version."
         currentSales={salesRev}
         submitted={submittedRev}
         canRestore
         restoreHint="Copy this version into your forecast as a new version"
       />
 
-      <Panel title="Change history" subtitle={`Audit trail for ${region}`}>
+      <Panel title="My change history" subtitle="Only the changes you made.">
         <AuditTable fixedRegion={region} hideRoleFilter showExport={false} limit={200} />
       </Panel>
 
@@ -156,19 +158,13 @@ export default function SalesDashboard() {
   );
 }
 
-function RejectionBanner({ region }: { region: NonNullable<ReturnType<typeof useSession>['region']> }) {
-  // The API audits a Regional Manager rejection as entity "forecast" with status "rejected".
-  const audit = useAudit({ entity: 'forecast', region, limit: 200 });
-  const latest = useMemo(() => {
-    const rows = [...(audit.data ?? [])].sort((a, b) => b.ts.localeCompare(a.ts));
-    return rows.find((r) => r.status === 'rejected');
-  }, [audit.data]);
+function RejectionBanner({ rejection }: { rejection: Rejection | null | undefined }) {
   return (
     <Banner kind="danger">
       <strong>Rejected by the Regional Manager.</strong> Revise your forecast and submit again.
-      {latest?.comment && (
+      {rejection?.comment && (
         <div className="quote">
-          “{latest.comment}” <span className="muted small">— {latest.username}, {fmtTime(latest.ts)}</span>
+          “{rejection.comment}” <span className="muted small">— {rejection.by}, {fmtTime(rejection.at)}</span>
         </div>
       )}
     </Banner>

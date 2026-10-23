@@ -62,11 +62,9 @@ def revision_table(conn: Connection, user: User, region: str | None, rev_no: int
     """One region's forecast as it was at version V<rev_no>, in the upload template layout."""
     if region not in REGIONS:
         raise HTTPException(422, "region is required to export a forecast version")
-    if not user.can_read_region(region):
-        raise forbidden("You can only export your own region")
-    lines = store.revision_lines(conn, store.current_cycle(conn)["id"], region, rev_no)
-    if lines is None:
-        raise HTTPException(404, f"{region} has no version V{rev_no}")
+    from .routes_workflow import visible_revision  # local import: routes_workflow imports this module
+
+    _, lines = visible_revision(conn, user, region, rev_no)
     rows = [[name, lines.get(pid, 0)] for pid, name in store.product_names(conn).items()]
     return f"forecast_{region}_V{rev_no}.xlsx", f"{region} V{rev_no}", ["Product Name", "Forecast Quantity"], rows
 

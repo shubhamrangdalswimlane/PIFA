@@ -21,10 +21,12 @@ interface Props {
   /** When set, each row offers "Restore" into the caller's working copy. */
   canRestore?: boolean;
   restoreHint?: string;
+  title?: string;
+  subtitle?: string;
 }
 
 /** Every save of a region's forecast is a numbered version (V1 … Vn): list, compare any two, export, restore. */
-export function VersionHistory({ region, products, currentSales, currentRegional, submitted, canRestore, restoreHint }: Props) {
+export function VersionHistory({ region, products, currentSales, currentRegional, submitted, canRestore, restoreHint, title, subtitle }: Props) {
   const revisions = useRevisions(region);
   const list = revisions.data ?? [];
   const [from, setFrom] = useState<number | null>(null);
@@ -50,11 +52,11 @@ export function VersionHistory({ region, products, currentSales, currentRegional
 
   return (
     <Panel
-      title={`Version history — ${region}`}
-      subtitle="Every save (dashboard edit or Excel file) creates the next version. Saved versions never change."
+      title={title ?? `Version history — ${region}`}
+      subtitle={subtitle ?? 'Every save (dashboard edit or Excel file) creates the next version. Saved versions never change.'}
     >
       {list.length === 0 ? (
-        <Empty>No versions yet. The first save or upload creates V1.</Empty>
+        <Empty>No versions yet. Your first save creates a version here.</Empty>
       ) : (
         <>
           <div className="grid-wrap">

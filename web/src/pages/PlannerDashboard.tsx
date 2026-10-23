@@ -45,8 +45,8 @@ export default function PlannerDashboard() {
       {tab === 'allocation' && <AllocationTab />}
       {tab === 'files' && <FilesTab />}
       {tab === 'history' && (
-        <Panel title="Change history">
-          <AuditTable />
+        <Panel title="My change history" subtitle="Only the changes you made.">
+          <AuditTable hideRoleFilter />
         </Panel>
       )}
     </div>

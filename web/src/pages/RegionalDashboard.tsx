@@ -42,8 +42,8 @@ export default function RegionalDashboard() {
       {tab === 'forecast' && <ForecastTab region={region} />}
       {tab === 'allocation' && <AllocationTab region={region} />}
       {tab === 'history' && (
-        <Panel title="Change history">
-          <AuditTable />
+        <Panel title="My change history" subtitle="Only the changes you made.">
+          <AuditTable hideRoleFilter />
         </Panel>
       )}
     </div>
@@ -76,7 +76,6 @@ function ForecastTab({ region }: { region: Region }) {
   const [version, setVersion] = useState<FcVersion>('v2');
   const [approveOpen, setApproveOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
-  const [historyRegion, setHistoryRegion] = useState<Region>(region);
 
   const status = forecast.data?.status[region] ?? cycle.data?.forecast[region];
   const stage = cycle.data?.stage ?? 0;
@@ -181,20 +180,13 @@ function ForecastTab({ region }: { region: Region }) {
           }
         />
       </Panel>
-      <div className="panel-actions history-picker">
-        <VersionSwitch<Region>
-          label="History for"
-          value={historyRegion}
-          onChange={setHistoryRegion}
-          options={REGIONS.map((r) => ({ value: r, label: r === region ? `${r} (yours)` : r }))}
-        />
-      </div>
       <VersionHistory
-        region={historyRegion}
+        region={region}
         products={products}
-        submitted={fc.status[historyRegion]?.v1SubmittedRev ?? null}
-        currentRegional={fc.status[historyRegion]?.v2 ? (fc.status[historyRegion]?.v2Rev ?? null) : null}
-        canRestore={canEdit && historyRegion === region}
+        title={`My versions — ${region}`}
+        subtitle="Only the versions you saved (your regional revisions). Saved versions never change."
+        currentRegional={fc.status[region]?.v2 ? (fc.status[region]?.v2Rev ?? null) : null}
+        canRestore={canEdit}
         restoreHint="Copy this version into your regional revision as a new version"
       />
       <CommentModal
