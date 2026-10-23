@@ -1,11 +1,10 @@
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
-import { useCycle, useMe } from '../api/hooks';
+import { useCycle } from '../api/hooks';
 import type { Cycle } from '../api/types';
-import { logout, tokenClaims } from '../auth/keycloak';
+import { logout } from '../auth/keycloak';
 import { useSession } from '../auth/session';
 import { ROLE_LABEL, ROLE_ROUTE, STAGES } from '../lib/format';
-import { Modal } from './Modal';
 
 export function StageTracker({ cycle }: { cycle: Cycle | undefined }) {
   const stage = cycle?.stage ?? 0;
@@ -42,33 +41,9 @@ export function StageTracker({ cycle }: { cycle: Cycle | undefined }) {
   );
 }
 
-function ClaimsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const me = useMe();
-  const claims = me.data?.claims ?? tokenClaims();
-  return (
-    <Modal open={open} title="Token claims" onClose={onClose} wide>
-      {me.data && (
-        <dl className="kv">
-          <dt>Username</dt>
-          <dd>{me.data.username}</dd>
-          <dt>Role</dt>
-          <dd>{me.data.role}</dd>
-          <dt>Region</dt>
-          <dd>{me.data.region ?? '—'}</dd>
-        </dl>
-      )}
-      <p className="muted small">
-        {me.data ? 'Claims as validated by the API (GET /api/me).' : me.error ? 'API unavailable — showing claims decoded from the local token.' : 'Loading…'}
-      </p>
-      <pre className="claims">{JSON.stringify(claims, null, 2)}</pre>
-    </Modal>
-  );
-}
-
 export function Layout({ children }: { children: ReactNode }) {
   const user = useSession();
   const cycle = useCycle();
-  const [claimsOpen, setClaimsOpen] = useState(false);
 
   return (
     <div className="app">
@@ -106,16 +81,12 @@ export function Layout({ children }: { children: ReactNode }) {
             {user.region && <> · {user.region}</>}
           </div>
         </div>
-        <button className="btn btn-ghost" onClick={() => setClaimsOpen(true)}>
-          Token claims
-        </button>
         <button className="btn" onClick={logout}>
           Log out
         </button>
       </header>
       <StageTracker cycle={cycle.data} />
       <main className="content">{children}</main>
-      <ClaimsModal open={claimsOpen} onClose={() => setClaimsOpen(false)} />
     </div>
   );
 }
