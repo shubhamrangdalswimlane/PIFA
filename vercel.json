@@ -2,8 +2,8 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "regions": ["iad1"],
-  "installCommand": "pnpm --dir web install --frozen-lockfile",
-  "buildCommand": "pnpm --dir web build",
+  "installCommand": "npx --yes pnpm@10.34.7 --dir web install --frozen-lockfile",
+  "buildCommand": "npx --yes pnpm@10.34.7 --dir web build",
   "outputDirectory": "web/dist",
   "functions": {
     "api/index.py": {
