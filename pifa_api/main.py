@@ -2,21 +2,22 @@
 
 import logging
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import routes_misc, routes_workflow
+from . import period, routes_misc, routes_workflow
 from .config import get_settings
 
 logging.basicConfig(level=logging.INFO)
 
-app = FastAPI(title="PIFA API", version="1.0.0", docs_url="/api/docs", openapi_url="/api/openapi.json", redoc_url=None)
+app = FastAPI(title="PIFA API", version="1.0.0", docs_url="/api/docs", openapi_url="/api/openapi.json", redoc_url=None,
+              dependencies=[Depends(period.from_request)])  # X-Period header selects the month-year
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in get_settings().allowed_origins.split(",") if o.strip()],
     allow_methods=["GET", "POST", "PUT"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-Period"],
 )
 
 

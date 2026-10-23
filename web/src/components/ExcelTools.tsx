@@ -5,6 +5,7 @@ import type { ExportKind, ExportVersion, FileKind, Product, Region } from '../ap
 import { FILE_COLUMNS, parseWorkbook, valueKeys, type CurrentValues, type ParseResult } from '../lib/excel';
 import { deltaClass, fmtDelta, fmtQty } from '../lib/format';
 import { CommentModal } from './Modal';
+import { getPeriod, periodLabel } from '../period';
 import { useToast } from './Toast';
 
 interface UploadProps {
@@ -69,10 +70,13 @@ export function UploadButton({ kind, products, current, region, version, disable
   const keys = useMemo(() => valueKeys(kind), [kind]);
   const preview = useMemo(() => {
     if (!parsed) return null;
+    const selected = getPeriod();
     const rows = parsed.rows.map((r) => {
-      const before = r.productId !== null ? current[String(r.productId)] : undefined;
-      const changed = r.productId === null || keys.some((k) => (before?.[k] ?? 0) !== r.values[k]);
-      return { ...r, before, changed };
+      // "Before" values are known only for the selected month; rows for other months are shown as new values.
+      const otherMonth = !!r.month && r.month !== selected;
+      const before = r.productId !== null && !otherMonth ? current[String(r.productId)] : undefined;
+      const changed = r.productId === null || otherMonth || keys.some((k) => (before?.[k] ?? 0) !== r.values[k]);
+      return { ...r, before, changed, otherMonth };
     });
     return {
       rows,
@@ -127,8 +131,9 @@ export function UploadButton({ kind, products, current, region, version, disable
       >
         <p className="muted small">
           Expected columns: <code>{FILE_COLUMNS[kind].join(', ')}</code>
-          {kind === 'forecast' && <> (or <code>Quantity</code>)</>}. Whole numbers ≥ 0.
-          {kind === 'forecast' && ' Each file is saved as a new forecast version.'}
+          {kind === 'forecast' && <> (or <code>Quantity</code>)</>}. <code>Product_Name</code> also works, and new product names are
+          added. Optional <code>Month</code> column (e.g. <code>2026-11</code> or <code>Nov-2026</code>): each month&apos;s rows go to that
+          month{kind === 'forecast' ? ' as its next version' : ''}; without it everything goes to the selected month. Whole numbers ≥ 0.
         </p>
         {note && <p className="hint">{note}</p>}
         <input
@@ -169,9 +174,14 @@ export function UploadButton({ kind, products, current, region, version, disable
             <div className="preview-stats">
               <span>{preview.rows.length} rows</span>
               <span className="chip chip-draft">{preview.changed} changed</span>
+              {parsed.months.length > 0 && (
+                <span className="chip chip-submitted" title="Each month gets its own version in its own planning month">
+                  {parsed.months.length} month{parsed.months.length === 1 ? '' : 's'}: {parsed.months.map(periodLabel).join(', ')}
+                </span>
+              )}
               {preview.unknown > 0 && (
-                <span className="chip chip-rejected">
-                  {preview.unknown} {kind === 'inventory' ? 'new (will be created)' : 'unknown product(s)'}
+                <span className="chip chip-approved" title="Product names not in the list yet are added on upload">
+                  {preview.unknown} new product{preview.unknown === 1 ? '' : 's'} (will be added)
                 </span>
               )}
               {preview.invalid > 0 && <span className="chip chip-rejected">{preview.invalid} invalid</span>}
@@ -186,6 +196,7 @@ export function UploadButton({ kind, products, current, region, version, disable
                 <thead>
                   <tr>
                     <th>Row</th>
+                    {parsed.months.length > 0 && <th>Month</th>}
                     <th className="col-product">Product</th>
                     {keys.map((k) => (
                       <th key={k} className="num" colSpan={3}>
@@ -201,18 +212,17 @@ export function UploadButton({ kind, products, current, region, version, disable
                     .map((r) => (
                       <tr
                         key={r.row}
-                        className={r.invalid.length || r.productId === null ? 'row-danger' : r.changed ? 'row-changed' : undefined}
+                        className={r.invalid.length ? 'row-danger' : r.changed ? 'row-changed' : undefined}
                       >
                         <td className="muted">{r.row}</td>
+                        {parsed.months.length > 0 && <td className="nowrap">{r.month ? periodLabel(r.month) : '—'}</td>}
                         <td className="col-product">
                           {r.name}
-                          {r.productId === null && (
-                            <span className="flag">{kind === 'inventory' ? ' new' : ' unknown'}</span>
-                          )}
+                          {r.productId === null && <span className="flag"> new</span>}
                           {r.invalid.length > 0 && <span className="flag"> invalid {r.invalid.join(', ')}</span>}
                         </td>
                         {keys.map((k) => {
-                          const b = r.before?.[k] ?? (r.productId === null ? null : 0);
+                          const b = r.before?.[k] ?? (r.productId === null || r.otherMonth ? null : 0);
                           const a = r.values[k];
                           const d = a !== null && b !== null ? a - b : null;
                           return [

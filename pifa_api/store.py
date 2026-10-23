@@ -1,7 +1,11 @@
 """SQL data access. Quantity maps are {product_id: qty}; a missing product means 0."""
 
+from datetime import date
+
+from fastapi import HTTPException
 from psycopg import Connection
 
+from . import period
 from .auth import User
 from .domain import REGIONS
 
@@ -11,12 +15,34 @@ QtyMap = dict[int, int]
 # --- cycle and products ---------------------------------------------------------------------------
 
 def current_cycle(conn: Connection) -> dict:
+    """Cycle of the selected month-year (X-Period); without one, the most recently created cycle."""
+    p = period.current()
+    if p is not None:
+        row = cycle_for_period(conn, p)
+        if row is None:
+            raise HTTPException(404, f"There is no planning cycle for {period.label(p)} yet")
+        return row
     row = conn.execute("SELECT * FROM cycle ORDER BY id DESC LIMIT 1").fetchone()
+    return row if row is not None else ensure_period_cycle(conn, date.today().replace(day=1))
+
+
+def cycle_for_period(conn: Connection, p: date) -> dict | None:
+    return conn.execute("SELECT * FROM cycle WHERE period = %s ORDER BY id DESC LIMIT 1", (p,)).fetchone()
+
+
+def ensure_period_cycle(conn: Connection, p: date) -> dict:
+    """The month's current cycle, created at stage 1 when the month is new."""
+    row = cycle_for_period(conn, p)
     if row is None:
         row = conn.execute(
-            "INSERT INTO cycle (name, stage) VALUES ('Cycle ' || to_char(now(), 'YYYY-MM'), 1) RETURNING *"
+            "INSERT INTO cycle (name, stage, period) VALUES (%s, 1, %s) RETURNING *", (period.label(p), p)
         ).fetchone()
     return row
+
+
+def periods(conn: Connection) -> list[dict]:
+    """Every month-year with its current cycle, oldest first."""
+    return conn.execute("SELECT DISTINCT ON (period) * FROM cycle ORDER BY period, id DESC").fetchall()
 
 
 def lock_cycle(conn: Connection) -> dict:

@@ -16,6 +16,8 @@ See `docs/` for the PRD, architecture and the service contract (`docs/API_CONTRA
 
 The API applies its SQL migrations (`pifa_api/migrations/`) automatically on cold start (advisory-locked).
 
+**Month-year planning.** Each month-year (e.g. Nov 2026) runs the whole pipeline on its own: pick it in the **Month** selector in the header, or open a new one with **＋ Month**. Forecast versions, stages, inventory, allocation and history are per month. An Excel upload with a `Month` column fills several months at once (each month gets its own version); `Product_Name` headers work and new product names are added. Sample files: `data_synthetic/forecast_<Region>_monthly.xlsx` and `inventory_monthly.xlsx` (Nov 2026 – Jan 2027).
+
 ## Local development
 
 Prerequisites: Docker, Python 3.12 + [uv](https://docs.astral.sh/uv/), Node 20+ with pnpm.

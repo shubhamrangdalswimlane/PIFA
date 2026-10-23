@@ -77,3 +77,20 @@ def test_poller_moves_upstream_files(client):
     assert main.poll_once() == 1
     assert not list((root / "files/inbound/inventory").iterdir())
     assert list((root / "files/processed").iterdir())
+
+
+def test_product_name_header_variants_and_month_column(client):
+    c, _, _ = client
+    content = xlsx([["Product_Name", "Month", "Forecast_Quantity"],
+                    ["Printer Model A", "Nov-2026", 10], ["Printer Model A", "2026-12", 12], ["New Model Z", "12/2026", 3]])
+    r = c.post("/ingest/forecast", files={"file": ("m.xlsx", content)}).json()
+    assert r["status"] == "processed", r["errors"]
+    assert [(x["product"], x["month"], x["values"]["qty"]) for x in r["rows"]] == [
+        ("Printer Model A", "2026-11", 10), ("Printer Model A", "2026-12", 12), ("New Model Z", "2026-12", 3)]
+
+
+def test_month_column_errors_and_duplicates_per_month(client):
+    c, _, _ = client
+    content = xlsx([["Product Name", "Month", "Quantity"], ["A", "Foo-26", 1], ["B", "2026-11", 1], ["B", "Nov 2026", 2]])
+    r = c.post("/ingest/forecast", files={"file": ("m.xlsx", content)}).json()
+    assert r["status"] == "rejected" and len(r["errors"]) == 2

@@ -18,6 +18,14 @@ Single source of truth for the JSON shapes exchanged between the SPA (`web/`), t
 
 ## 1. Public API (`/api`, Bearer = Keycloak access token from client `printer-web`)
 
+### Month-year periods
+
+Every month-year runs the full pipeline in its own cycle (own stage, forecast versions V1…Vn, inventory, allocation, transfers, approvals and history). Every request may carry **`X-Period: 2026-11`** (or `?period=2026-11`; also accepts `Nov-2026`, `11/2026`, …) to choose the month; without it the API uses the most recently created cycle. `422` for an unreadable month, `404` for a month that is not open yet.
+
+`GET /api/periods` → `[{"period": "2026-11", "label": "Nov 2026", "cycleId": 7, "name": "Nov 2026", "stage": 2, "stageKey": "REGIONAL_REVIEW"}]` (oldest first)
+
+`POST /api/periods` `{"period": "2026-12"}` → the same object; opens the month at stage 1 (Sales Manager, Planner, Admin). Returns the existing one if it is already open. Admin `reset` restarts only the selected month.
+
 ### Identity and cycle
 
 `GET /api/me`
@@ -160,7 +168,9 @@ Entities: `forecast | inventory | allocation | transfer | approval | workflow | 
 
 ### Files (Excel)
 
-`POST /api/files/{kind}?region=North` multipart `file` (.xlsx) + `comment` → `{"fileId": 4, "status": "processed", "path": "/files/processed/...", "applied": 20, "revision": 6 | null, "message": "Saved as version V6"}`
+Excel headers are matched loosely (`Product Name`, `Product_Name`, `PRODUCT-NAME` …). New product names in any upload are added to the product list (`newProducts`). An optional **Month** column (`Month`, `Month-Year`, `Period`; values like `2026-11`, `Nov-2026`, `11/2026` or an Excel date) spreads one file over several months: each month's rows are applied in that month (opened at stage 1 if new) and, for forecasts, become that month's next version (`periods[]`). Without a Month column the whole file goes to the selected month (opened if new).
+
+`POST /api/files/{kind}?region=North` multipart `file` (.xlsx) + `comment` → `{"fileId": 4, "status": "processed", "path": "/files/processed/...", "applied": 20, "revision": 6 | null, "periods": [{"period": "2026-11", "label": "Nov 2026", "applied": 20, "revision": 6, "message": "Saved as version V6"}], "newProducts": [], "message": "Saved as version V6"}`
 
 Uploads work at **every stage** for the Sales Manager and the Planner. Regional Managers cannot upload (`403`); they revise on the dashboard.
 - `kind=forecast`: columns `Product Name`, `Forecast Quantity` (or `Quantity`). Sales Manager, own `region`. Always applied to the Sales Manager's working forecast as the next version, at any stage.

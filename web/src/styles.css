@@ -346,3 +346,9 @@ table.mini th, table.mini td { padding: 4px 8px; }
 .history-picker { justify-content: flex-start; margin: 4px 0 -4px; }
 .transfer-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 .transfer-fieldset:disabled { opacity: 0.6; }
+
+/* Month-year picker in the header */
+.period-picker { display: flex; align-items: center; gap: 8px; padding-left: 12px; border-left: 1px solid var(--border); flex-wrap: wrap; }
+.period-picker select { min-width: 170px; font-weight: 600; }
+.period-add { display: inline-flex; gap: 6px; align-items: center; }
+.period-add input[type="month"] { padding: 4px 6px; }

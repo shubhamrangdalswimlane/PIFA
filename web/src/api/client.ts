@@ -1,4 +1,5 @@
 import { getAccessToken } from '../auth/keycloak';
+import { getPeriod } from '../period';
 import type {
   AdminUser,
   AllocationChange,
@@ -19,6 +20,7 @@ import type {
   HealthReport,
   InventoryResponse,
   Me,
+  PeriodInfo,
   Product,
   QtyChange,
   Region,
@@ -100,6 +102,8 @@ interface RequestOptions {
 async function rawRequest(method: string, path: string, opts: RequestOptions = {}): Promise<Response> {
   const token = await getAccessToken();
   const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+  const period = getPeriod();
+  if (period) headers['X-Period'] = period; // month-year the request is about
   let body: BodyInit | undefined;
   if (opts.form) {
     body = opts.form;
@@ -133,9 +137,11 @@ export interface Updated {
 }
 
 export const api = {
-  // Identity and cycle
+  // Identity, cycle and month-year periods
   me: () => get<Me>('/me'),
   cycle: () => get<Cycle>('/cycle'),
+  periods: () => get<PeriodInfo[]>('/periods'),
+  createPeriod: (period: string) => post<PeriodInfo>('/periods', { period }),
   products: () => get<Product[]>('/products'),
 
   // Forecast

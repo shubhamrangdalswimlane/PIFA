@@ -2,7 +2,7 @@
 
 from psycopg import Connection
 
-from . import clients, store
+from . import clients, period, store
 from .auth import User
 from .domain import REGIONS, STAGES, conflict
 
@@ -26,6 +26,8 @@ def cycle_view(conn: Connection) -> dict:
     return {
         "id": cid,
         "name": cycle["name"],
+        "period": period.key(cycle["period"]),
+        "periodLabel": period.label(cycle["period"]),
         "stage": cycle["stage"],
         "stageKey": STAGES[cycle["stage"]],
         "forecast": forecast,
@@ -226,8 +228,11 @@ def admin_advance(conn: Connection, cycle: dict, user: User, comment: str) -> No
 
 
 def admin_reset(conn: Connection, user: User, comment: str) -> dict:
+    """Restart the selected month: a new empty cycle for the same month-year at stage 1."""
+    p = store.current_cycle(conn)["period"]
     cycle = conn.execute(
-        "INSERT INTO cycle (name, stage) VALUES ('Cycle ' || to_char(now(), 'YYYY-MM-DD HH24:MI'), 1) RETURNING *"
+        "INSERT INTO cycle (name, stage, period) VALUES (%s || ' (restart ' || to_char(now(), 'DD Mon HH24:MI') || ')', 1, %s) RETURNING *",
+        (period.label(p), p),
     ).fetchone()
     store.audit(conn, user, "workflow", cycle_id=cycle["id"], region=None, version=STAGES[1], comment=comment, status="reset")
     return cycle

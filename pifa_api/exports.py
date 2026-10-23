@@ -5,7 +5,7 @@ import logging
 from fastapi import HTTPException
 from psycopg import Connection
 
-from . import clients, store
+from . import clients, period, store
 from .auth import User
 from .domain import REGIONS, SM, forbidden
 
@@ -74,14 +74,15 @@ def write_published_export(conn: Connection, user: User) -> None:
     cycle = store.current_cycle(conn)
     try:
         filename, sheet, cols, rows = table(conn, user, "allocation", "final")
-        clients.export_file(f"published_{filename}", sheet, cols, rows)
-        status, message = "processed", "Published allocation written to /outbound"
+        name = f"published_{period.key(cycle['period'])}_{filename}"
+        clients.export_file(name, sheet, cols, rows)
+        status, message = "processed", f"Published {period.label(cycle['period'])} allocation written to /outbound"
     except HTTPException as e:
         log.warning("published export failed: %s", e.detail)
         status, message = "export_failed", str(e.detail)
     conn.execute(
         "INSERT INTO file_ingest (path, kind, status, message, uploaded_by) VALUES (%s, %s, %s, %s, %s)",
-        ("/files/outbound/published_allocation_final.xlsx", "export", status, message, user.username),
+        (f"/files/outbound/published_{period.key(cycle['period'])}_allocation_final.xlsx", "export", status, message, user.username),
     )
     store.audit(conn, user, "file", cycle_id=cycle["id"], region=None, version="FINAL", comment=message, status=status)
     conn.commit()

@@ -4,6 +4,8 @@ Outputs (same column layout as the in-app upload templates):
   forecast_<Region>.xlsx  - Sales Manager forecast V1 per region: Product Name, Forecast Quantity
   inventory.xlsx          - Planner inventory: Product Name, Available Inventory
   summary.xlsx            - Forecast vs inventory per product (reference only, not for upload)
+  forecast_<Region>_monthly.xlsx, inventory_monthly.xlsx
+                          - Product_Name, Month, quantity for Nov 2026 - Jan 2027 (one upload fills three months)
 
 Inventory is deliberately mixed: about half the products have less stock than the total
 forecast (constrained, so allocation is proportional) and half have more (surplus stays
@@ -87,6 +89,42 @@ def main(seed: int) -> None:
     short = sum(1 for s in summary if s[-2] < 0)
     print(f"seed {seed}: {len(PRODUCTS)} products, {short} short of forecast, {len(PRODUCTS) - short} in surplus")
     print(f"total forecast {sum(s[5] for s in summary)}, total inventory {sum(inventory.values())}")
+
+    multi_month(rng, forecast, inventory)
+
+
+# Months covered by the multi-month files (one Month column; each month is planned separately).
+MONTHS = ["2026-11", "2026-12", "2027-01"]
+# Products that appear only in the monthly files, to show new product names being added on upload.
+NEW_PRODUCTS = ["Printer Model E", "Eco Laser L400"]
+
+
+def multi_month(rng: random.Random, forecast: dict, inventory: dict) -> None:
+    """forecast_<Region>_monthly.xlsx and inventory_monthly.xlsx: Product_Name, Month, quantity for 3 months.
+
+    Month 1 uses the single-month numbers; later months drift by -15%..+20% (seasonality), and two new
+    products start in the second month. Inventory again mixes short and surplus products per month.
+    """
+    products = PRODUCTS + NEW_PRODUCTS
+    for r in REGIONS:
+        rows = []
+        for i, month in enumerate(MONTHS):
+            for p in products:
+                if p in NEW_PRODUCTS and i == 0:
+                    continue
+                base = forecast[r].get(p) or rng.randint(20, 120)
+                qty = base if i == 0 else max(0, round(base * rng.uniform(0.85, 1.2)))
+                rows.append([p, month, qty])
+        save(OUT / f"forecast_{r}_monthly.xlsx", ["Product_Name", "Month", "Forecast Quantity"], rows)
+    rows = []
+    for i, month in enumerate(MONTHS):
+        for p in products:
+            if p in NEW_PRODUCTS and i == 0:
+                continue
+            base = inventory.get(p) or rng.randint(150, 400)
+            rows.append([p, month, base if i == 0 else max(0, round(base * rng.uniform(0.8, 1.15)))])
+    save(OUT / "inventory_monthly.xlsx", ["Product_Name", "Month", "Available Inventory"], rows)
+    print(f"monthly files: {', '.join(MONTHS)}; new products {', '.join(NEW_PRODUCTS)}")
 
 
 if __name__ == "__main__":

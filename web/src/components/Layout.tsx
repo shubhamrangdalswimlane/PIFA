@@ -1,10 +1,15 @@
-import type { ReactNode } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
-import { useCycle } from '../api/hooks';
-import type { Cycle } from '../api/types';
+import { api } from '../api/client';
+import { qk, useCycle, usePeriods } from '../api/hooks';
+import type { Cycle, PeriodInfo } from '../api/types';
 import { logout } from '../auth/keycloak';
 import { useSession } from '../auth/session';
 import { ROLE_LABEL, ROLE_ROUTE, STAGES } from '../lib/format';
+import { getPeriod, setPeriod } from '../period';
+import { useToast } from './Toast';
+import { Loading, QueryError } from './ui';
 
 export function StageTracker({ cycle }: { cycle: Cycle | undefined }) {
   const stage = cycle?.stage ?? 0;
@@ -43,7 +48,29 @@ export function StageTracker({ cycle }: { cycle: Cycle | undefined }) {
 
 export function Layout({ children }: { children: ReactNode }) {
   const user = useSession();
-  const cycle = useCycle();
+  const periods = usePeriods();
+  const queryClient = useQueryClient();
+  const [period, setSelected] = useState<string | null>(getPeriod());
+
+  // Pick a month once the list is known: the remembered one if it still exists, else the most recently opened.
+  useEffect(() => {
+    const list = periods.data;
+    if (!list?.length) return;
+    if (!period || !list.some((p) => p.period === period)) {
+      const latest = [...list].sort((a, b) => b.cycleId - a.cycleId)[0].period;
+      setPeriod(latest);
+      setSelected(latest);
+    }
+  }, [periods.data, period]);
+
+  const switchTo = (next: string) => {
+    setPeriod(next);
+    // Every business query belongs to one month: drop them all so the new month loads fresh.
+    queryClient.removeQueries({ predicate: (q) => !['me', 'periods'].includes(String(q.queryKey[0])) });
+    setSelected(next);
+  };
+
+  const ready = !!period && !!periods.data?.some((p) => p.period === period);
 
   return (
     <div className="app">
@@ -64,15 +91,7 @@ export function Layout({ children }: { children: ReactNode }) {
             </NavLink>
           ))}
         </nav>
-        <div className="cycle-name">
-          {cycle.data ? (
-            <>
-              <span className="muted small">Cycle</span> <strong>{cycle.data.name}</strong>
-            </>
-          ) : cycle.error ? (
-            <span className="danger small">Cycle unavailable</span>
-          ) : null}
-        </div>
+        <PeriodPicker periods={periods.data ?? []} value={ready ? period : null} onChange={switchTo} canOpen={user.roles.some((r) => r === 'SALES_MANAGER' || r === 'PLANNER' || r === 'ADMIN')} />
         <div className="spacer" />
         <div className="user">
           <div className="user-name">{user.name}</div>
@@ -85,8 +104,88 @@ export function Layout({ children }: { children: ReactNode }) {
           Log out
         </button>
       </header>
+      {ready ? (
+        <PeriodContent key={period}>{children}</PeriodContent>
+      ) : periods.error ? (
+        <main className="content">
+          <QueryError error={periods.error} />
+        </main>
+      ) : (
+        <main className="content">
+          <Loading what="planning months" />
+        </main>
+      )}
+    </div>
+  );
+}
+
+/** Stage tracker + dashboard for the selected month; remounted when the month changes. */
+function PeriodContent({ children }: { children: ReactNode }) {
+  const cycle = useCycle();
+  return (
+    <>
       <StageTracker cycle={cycle.data} />
       <main className="content">{children}</main>
+    </>
+  );
+}
+
+function PeriodPicker({
+  periods,
+  value,
+  onChange,
+  canOpen,
+}: {
+  periods: PeriodInfo[];
+  value: string | null;
+  onChange: (period: string) => void;
+  canOpen: boolean;
+}) {
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const [adding, setAdding] = useState(false);
+  const [month, setMonth] = useState('');
+  const open = useMutation({
+    mutationFn: (p: string) => api.createPeriod(p),
+    onSuccess: async (p) => {
+      await queryClient.invalidateQueries({ queryKey: qk.periods });
+      toast.success(`${p.label} is open for planning`);
+      setAdding(false);
+      setMonth('');
+      onChange(p.period);
+    },
+    onError: (e) => toast.error(e),
+  });
+
+  return (
+    <div className="period-picker">
+      <label className="muted small" htmlFor="period-select">
+        Month
+      </label>
+      <select id="period-select" value={value ?? ''} onChange={(e) => onChange(e.target.value)} disabled={!periods.length}>
+        {!value && <option value="">…</option>}
+        {periods.map((p) => (
+          <option key={p.period} value={p.period}>
+            {p.label} · {p.stage === 6 ? 'Published' : `Stage ${p.stage}`}
+          </option>
+        ))}
+      </select>
+      {canOpen &&
+        (adding ? (
+          <span className="period-add">
+            <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} aria-label="New planning month" />
+            <button className="btn btn-sm btn-primary" disabled={!month || open.isPending} onClick={() => open.mutate(month)}>
+              Open
+            </button>
+            <button className="btn btn-sm" onClick={() => setAdding(false)}>
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <button className="btn btn-sm" title="Open another month-year for planning" onClick={() => setAdding(true)}>
+            ＋ Month
+          </button>
+        ))}
     </div>
   );
 }

@@ -94,9 +94,20 @@ export interface Confirmation {
   at: string;
 }
 
+export interface PeriodInfo {
+  period: string; // "2026-11"
+  label: string; // "Nov 2026"
+  cycleId: number;
+  name: string;
+  stage: StageNumber;
+  stageKey: StageKey;
+}
+
 export interface Cycle {
   id: number;
   name: string;
+  period: string;
+  periodLabel: string;
   stage: StageNumber;
   stageKey: StageKey;
   forecast: RegionMap<RegionForecastStatus>;
@@ -230,6 +241,10 @@ export interface UploadResult {
   path: string;
   applied: number;
   revision?: number | null;
+  /** One entry per month-year the file touched (a Month column can span several). */
+  periods?: { period: string; label: string; applied: number; revision: number | null; message: string }[];
+  /** Product names from the file that were added to the product list. */
+  newProducts?: string[];
   /** Plain-language outcome, e.g. kept as a history-only version while the forecast is locked. */
   message?: string | null;
 }

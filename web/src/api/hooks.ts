@@ -6,6 +6,7 @@ import { useToast } from '../components/Toast';
 export const qk = {
   me: ['me'] as const,
   cycle: ['cycle'] as const,
+  periods: ['periods'] as const,
   products: ['products'] as const,
   forecast: ['forecast'] as const,
   revisions: (region: Region) => ['forecast', 'revisions', region] as const,
@@ -23,6 +24,7 @@ export const qk = {
 };
 
 export const useMe = () => useQuery({ queryKey: qk.me, queryFn: api.me, staleTime: 5 * 60_000 });
+export const usePeriods = () => useQuery({ queryKey: qk.periods, queryFn: api.periods, staleTime: 30_000 });
 export const useCycle = () => useQuery({ queryKey: qk.cycle, queryFn: api.cycle, refetchInterval: 30_000 });
 export const useProducts = () => useQuery({ queryKey: qk.products, queryFn: api.products });
 export const useForecast = () => useQuery({ queryKey: qk.forecast, queryFn: api.forecast });

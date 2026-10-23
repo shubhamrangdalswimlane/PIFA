@@ -2,7 +2,8 @@
 
 import io
 import zipfile
-from datetime import datetime, UTC
+import re
+from datetime import UTC, date, datetime
 
 from openpyxl import Workbook, load_workbook
 
@@ -56,8 +57,40 @@ def _whole(value) -> int | None:
     return None
 
 
+PRODUCT_HEADERS = ["product name", "productname", "product"]
+MONTH_HEADERS = ["month", "month year", "monthyear", "period", "forecast month"]
+_MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+
+
+def _norm_header(h) -> str:
+    """'Product_Name', 'product-name ', 'PRODUCT NAME' -> 'product name'."""
+    return " ".join(re.sub(r"[_\-]+", " ", str(h)).lower().split())
+
+
+def parse_month(value) -> str:
+    """Month-year cell -> 'YYYY-MM'. Accepts dates and 2026-11, 11/2026, Nov-2026, Nov 2026, November 2026, Nov-26."""
+    if isinstance(value, datetime | date):
+        return f"{value.year:04d}-{value.month:02d}"
+    s = str(value or "").strip().lower()
+    if not s:
+        raise ValueError("empty (use e.g. 2026-11 or Nov-2026)")
+    if m := re.fullmatch(r"(\d{4})[-/.](\d{1,2})(?:[-/.]\d{1,2})?(?:[ t].*)?", s):
+        year, month = int(m.group(1)), int(m.group(2))
+    elif m := re.fullmatch(r"(\d{1,2})[-/.](\d{4})", s):
+        year, month = int(m.group(2)), int(m.group(1))
+    elif (m := re.fullmatch(r"([a-z]{3})[a-z]*[\s\-/.']*(\d{2}|\d{4})", s)) and m.group(1) in _MONTHS:
+        month, year = _MONTHS[m.group(1)], int(m.group(2))
+        year += 2000 if year < 100 else 0
+    else:
+        raise ValueError(f"'{value}' is not a month-year (use e.g. 2026-11 or Nov-2026)")
+    if not (1 <= month <= 12 and 2000 <= year <= 2100):
+        raise ValueError(f"'{value}' is not a valid month-year")
+    return f"{year:04d}-{month:02d}"
+
+
 def parse(kind: str, content: bytes) -> tuple[list[dict], list[dict]]:
-    """Return (rows, errors). Rows: {"row", "product", "values"}. Any error rejects the whole file."""
+    """Return (rows, errors). Rows: {"row", "product", "values"} plus "month" ("YYYY-MM") when the file has a
+    Month column, so one file can carry several month-years. Any error rejects the whole file."""
     if kind not in COLUMNS:
         raise FileRejected(f"Unknown file kind {kind}")
     try:
@@ -69,9 +102,11 @@ def parse(kind: str, content: bytes) -> tuple[list[dict], list[dict]]:
     header = next(rows_iter, None)
     if not header:
         raise FileRejected("The first sheet is empty")
-    index = {str(h).strip().lower(): i for i, h in enumerate(header) if h is not None}
-    if "product name" not in index:
-        raise FileRejected("Missing 'Product Name' column")
+    index = {_norm_header(h): i for i, h in enumerate(header) if h is not None}
+    name_col = next((index[n] for n in PRODUCT_HEADERS if n in index), None)
+    if name_col is None:
+        raise FileRejected("Missing 'Product Name' (or 'Product_Name') column")
+    month_col = next((index[n] for n in MONTH_HEADERS if n in index), None)
     cols = {}
     for key, names in COLUMNS[kind]:
         found = next((index[n] for n in names if n in index), None)
@@ -83,16 +118,26 @@ def parse(kind: str, content: bytes) -> tuple[list[dict], list[dict]]:
     for n, raw in enumerate(rows_iter, start=2):
         if n - 1 > MAX_ROWS:
             raise FileRejected(f"More than {MAX_ROWS} rows")
-        name = raw[index["product name"]] if index["product name"] < len(raw) else None
+        name = raw[name_col] if name_col < len(raw) else None
         if name is None or str(name).strip() == "":
             if any(v not in (None, "") for v in raw):
                 errors.append({"row": n, "message": "Product Name is empty"})
             continue
-        product = str(name).strip()
-        if product.lower() in seen:
-            errors.append({"row": n, "message": f"Duplicate product '{product}' (first on row {seen[product.lower()]})"})
+        product = " ".join(str(name).split())
+        month = None
+        if month_col is not None:
+            cell = raw[month_col] if month_col < len(raw) else None
+            try:
+                month = parse_month(cell)
+            except ValueError as e:
+                errors.append({"row": n, "message": f"Month: {e}"})
+                continue
+        dup = (product.lower(), month)
+        if dup in seen:
+            where = f" for {month}" if month else ""
+            errors.append({"row": n, "message": f"Duplicate product '{product}'{where} (first on row {seen[dup]})"})
             continue
-        seen[product.lower()] = n
+        seen[dup] = n
         values = {}
         for key, i in cols.items():
             cell = raw[i] if i < len(raw) else None
@@ -102,7 +147,10 @@ def parse(kind: str, content: bytes) -> tuple[list[dict], list[dict]]:
             else:
                 values[key] = qty
         if len(values) == len(cols):
-            rows.append({"row": n, "product": product, "values": values})
+            row = {"row": n, "product": product, "values": values}
+            if month_col is not None:
+                row["month"] = month
+            rows.append(row)
     wb.close()
     return rows, errors
 

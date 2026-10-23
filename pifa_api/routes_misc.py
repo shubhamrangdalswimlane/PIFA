@@ -6,12 +6,12 @@ from fastapi.responses import Response
 from psycopg import Connection
 from pydantic import BaseModel, Field
 
-from . import clients, db, exports, store, workflow
+from . import clients, db, exports, period, store, workflow
 from . import rules as business_rules
 from .auth import EVERYONE, READ_ALL, User, current_user, require_role, service_caller
 from .config import get_settings
 from .db import get_db
-from .domain import ADMIN, HEAD, PLANNER, REGIONS, SM, forbidden, invalid, require_comment
+from .domain import ADMIN, HEAD, PLANNER, REGIONS, SM, STAGES, forbidden, invalid, require_comment
 from .routes_workflow import (
     allocation_v1_open,
     apply_allocation_changes,
@@ -31,6 +31,37 @@ def me(user: User = Depends(current_user)):
 @router.get("/cycle")
 def get_cycle(user: User = Depends(current_user), conn: Connection = Depends(get_db)):
     return workflow.cycle_view(conn)
+
+
+class PeriodBody(BaseModel):
+    period: str
+    comment: str = ""
+
+
+def _period_json(c: dict) -> dict:
+    return {"period": period.key(c["period"]), "label": period.label(c["period"]), "cycleId": c["id"], "name": c["name"],
+            "stage": c["stage"], "stageKey": STAGES[c["stage"]]}
+
+
+@router.get("/periods")
+def list_periods(user: User = Depends(current_user), conn: Connection = Depends(get_db)):
+    """Every month-year with its current cycle and stage, oldest first."""
+    return [_period_json(c) for c in store.periods(conn)]
+
+
+@router.post("/periods")
+def create_period(body: PeriodBody, user: User = Depends(require_role(SM, PLANNER, ADMIN)), conn: Connection = Depends(get_db)):
+    """Open a month-year for planning (stage 1). Returns the existing one when it is already open."""
+    try:
+        p = period.parse(body.period)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    existed = store.cycle_for_period(conn, p) is not None
+    cycle = store.ensure_period_cycle(conn, p)
+    if not existed:
+        store.audit(conn, user, "workflow", cycle_id=cycle["id"], version=period.key(p),
+                    comment=body.comment.strip() or f"Opened {period.label(p)} for planning", status="period")
+    return _period_json(cycle)
 
 
 @router.get("/products")
@@ -118,46 +149,66 @@ def upload_file(kind: str, file: UploadFile = File(...), comment: str = Form("")
     if len(content) > MAX_UPLOAD:
         raise HTTPException(413, "File larger than 4 MB")
 
-    cycle = store.current_cycle(conn)
+    # Uploading into a month that is not open yet opens it (stage 1), like months named in a Month column.
+    selected = period.current()
+    cycle = store.ensure_period_cycle(conn, selected) if selected else store.current_cycle(conn)
     result = clients.ingest_file(kind, file.filename or f"{kind}.xlsx", content, user.username)
     file_id = _record_file(result, kind, user, cycle["id"], comment)
     if result["status"] != "processed":
         raise invalid("File rejected", errors=result.get("errors", []))
 
+    # New product names in a file are added to the product list (any kind of upload).
     ids = store.product_ids_by_name(conn)
-    errors = []
-    changes: dict = {}
-    alloc_changes: list = []
+    new_products = []
+    groups: dict[str | None, list[tuple[int, dict]]] = {}
     for row in result.get("rows", []):
-        pid = ids.get(row["product"].strip().lower())
-        if pid is None and kind == "inventory":
-            pid = ids[row["product"].strip().lower()] = store.ensure_product(conn, row["product"])
-        if pid is None:
-            errors.append({"row": row["row"], "message": f"Unknown product '{row['product']}'"})
-            continue
-        if kind == "allocation":
-            alloc_changes += [(pid, r, row["values"][r]) for r in REGIONS if r in row["values"]]
-        else:
-            changes[pid] = row["values"]["qty"]
-    if errors:
-        raise invalid("File has unknown products", errors=errors)
+        name_key = row["product"].strip().lower()
+        if name_key not in ids:
+            ids[name_key] = store.ensure_product(conn, row["product"])
+            new_products.append(row["product"].strip())
+        groups.setdefault(row.get("month"), []).append((ids[name_key], row["values"]))
 
+    # A Month column spreads one file over several month-years: each month is applied in its own
+    # period (opened at stage 1 if new) and, for forecasts, becomes that month's next version.
     text = f"Excel upload {file.filename}: {comment}"
-    revision, applied, message = None, 0, None
-    if kind == "forecast":
-        applied, revision = (apply_forecast_changes(conn, user, region, 1, changes, text, source="upload",
-                                                    file_name=file.filename) if changes else (0, None))
-        message = f"Saved as version V{revision}" if revision else "No changes compared with your forecast"
-    elif kind == "inventory":
-        applied = apply_inventory_changes(conn, user, changes, text, source_file=file.filename, any_stage=True) if changes else 0
-        message = f"Inventory updated ({applied} products)"
-    elif allocation_v1_open(conn, store.lock_cycle(conn)):
-        applied = apply_allocation_changes(conn, user, alloc_changes, text, any_stage=True) if alloc_changes else 0
-        message = f"Allocation V1 updated ({applied} cells)"
-    else:
-        message = "File validated and stored, but allocation V1 is already approved, so it was not applied."
+    outcomes = []
+    for month, rows in sorted(groups.items(), key=lambda g: g[0] or ""):
+        target = period.parse(month) if month else None
+        with period.use(target if target else period.current()):
+            if target:
+                store.ensure_period_cycle(conn, target)
+            label = period.label(store.current_cycle(conn)["period"])
+            outcomes.append({"period": period.key(store.current_cycle(conn)["period"]), "label": label,
+                             **_apply_upload(conn, user, kind, region, rows, text, file.filename)})
+
+    applied = sum(o["applied"] for o in outcomes)
+    message = "; ".join(f"{o['label']}: {o['message']}" for o in outcomes) if len(outcomes) > 1 else outcomes[0]["message"]
+    if new_products:
+        message += f". New products added: {', '.join(new_products[:10])}{' …' if len(new_products) > 10 else ''}"
     return {"fileId": file_id, "status": result["status"], "path": result.get("path"), "applied": applied,
-            "revision": revision, "message": message}
+            "revision": outcomes[0]["revision"] if len(outcomes) == 1 else None, "periods": outcomes,
+            "newProducts": new_products, "message": message}
+
+
+def _apply_upload(conn: Connection, user: User, kind: str, region: str | None, rows: list[tuple[int, dict]],
+                  text: str, file_name: str | None) -> dict:
+    """Apply one month's rows of an upload in the current period."""
+    revision, applied = None, 0
+    if kind == "forecast":
+        changes = {pid: v["qty"] for pid, v in rows}
+        applied, revision = apply_forecast_changes(conn, user, region, 1, changes, text, source="upload", file_name=file_name)
+        message = f"saved as version V{revision}" if revision else "no changes compared with the forecast"
+    elif kind == "inventory":
+        applied = apply_inventory_changes(conn, user, {pid: v["qty"] for pid, v in rows}, text, source_file=file_name,
+                                          any_stage=True)
+        message = f"inventory updated ({applied} products)"
+    elif allocation_v1_open(conn, store.lock_cycle(conn)):
+        changes = [(pid, r, v[r]) for pid, v in rows for r in REGIONS if r in v]
+        applied = apply_allocation_changes(conn, user, changes, text, any_stage=True)
+        message = f"allocation V1 updated ({applied} cells)"
+    else:
+        message = "validated and stored, but allocation V1 is already approved, so it was not applied"
+    return {"applied": applied, "revision": revision, "message": message[0].upper() + message[1:]}
 
 
 @router.get("/files")
@@ -177,6 +228,7 @@ def export(kind: str, version: str | None = None, region: str | None = None, rev
         filename, sheet, cols, rows = exports.revision_table(conn, user, region, rev)
     else:
         filename, sheet, cols, rows = exports.table(conn, user, kind, version)
+    filename = f"{period.key(store.current_cycle(conn)['period'])}_{filename}"  # e.g. 2026-11_forecast_v1.xlsx
     content = clients.export_file(filename, sheet, cols, rows)
     return Response(
         content,
