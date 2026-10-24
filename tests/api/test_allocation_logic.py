@@ -6,7 +6,6 @@ def test_planner_sees_logic_but_cannot_change_it(api):
     assert r.status_code == 200
     body = r.json()
     assert body["config"]["sharing"] == "PROPORTIONAL" and "R-ALLOC-01" in body["drl"]
-    assert body["example"]["allocation"] == {"North": 15, "East": 10, "West": 13, "South": 12}
     put = api.as_("planner").put("/api/config/rules", json={"baselinePct": 25, "sharing": "UNMET_DEMAND", "comment": "x"})
     assert put.status_code == 403
 

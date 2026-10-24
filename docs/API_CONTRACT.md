@@ -192,7 +192,7 @@ Uploads work at **every stage** for the Sales Manager and the Planner. Regional 
 
 `GET /api/rules/catalogue` → `[{"id": "R-FC-01", "package": "forecast", "description": "..."}]` (all roles)
 
-`GET /api/config/rules` → `{"baselinePct": 25, "sharing": "UNMET_DEMAND" | "PROPORTIONAL"}`; `PUT /api/config/rules` same body + `comment` (Admin or Head of Sales); `GET /api/rules/allocation` (Planner, Head, Admin; read-only) → `{engine, drl, config, example}`. Allocation maths runs on the Drools KIE Server when `DROOLS_URL` is set (python-drools-sdk), else the built-in Python copy; default sharing is `PROPORTIONAL` (equal % cut).
+`GET /api/config/rules` → `{"baselinePct": 25, "sharing": "UNMET_DEMAND" | "PROPORTIONAL"}`; `PUT /api/config/rules` same body + `comment` (Admin or Head of Sales); `GET /api/rules/allocation` (Planner, Head, Admin; read-only) → `{engine, drl, config}`. Allocation maths runs on the Drools KIE Server when `DROOLS_URL` is set (python-drools-sdk), else the built-in Python copy; default sharing is `PROPORTIONAL` (equal % cut).
 
 ---
 

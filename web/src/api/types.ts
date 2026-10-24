@@ -297,5 +297,4 @@ export interface AllocationLogic {
   engine: string;
   drl: string;
   config: RuleConfig;
-  example: { inventory: number; demand: Record<string, number>; allocation: Record<string, number> };
 }

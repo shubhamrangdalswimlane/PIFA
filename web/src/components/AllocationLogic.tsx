@@ -1,13 +1,20 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAllocationLogic, useApiMutation } from '../api/hooks';
-import { REGIONS, type RuleConfig, type SharingMode } from '../api/types';
+import { type RuleConfig, type SharingMode } from '../api/types';
 import { CommentModal } from './Modal';
 import { Loading, Panel, QueryError } from './ui';
 
 const SHARING_LABEL: Record<SharingMode, string> = {
-  PROPORTIONAL: 'PROPORTIONAL — every region is cut by the same percentage',
-  UNMET_DEMAND: 'UNMET_DEMAND — baseline % per region first, then share the rest by unmet forecast',
+  PROPORTIONAL: 'Equal % cut for every region',
+  UNMET_DEMAND: 'Baseline % first, rest by unmet forecast',
+};
+
+const SHARING_HELP: Record<SharingMode, string> = {
+  PROPORTIONAL:
+    'Every region is reduced by the same percentage (inventory ÷ total forecast). Left-over units from rounding go to the largest fractions.',
+  UNMET_DEMAND:
+    'Every region first gets the baseline % of the inventory (never more than its forecast); the rest is shared by what each region still needs.',
 };
 
 /**
@@ -30,7 +37,6 @@ export function AllocationLogic({ canEdit = false }: { canEdit?: boolean }) {
   const saved = logic.data?.config;
   const pctValid = draft !== null && Number.isInteger(draft.baselinePct) && draft.baselinePct >= 0 && draft.baselinePct <= 25;
   const dirty = !!draft && !!saved && (draft.baselinePct !== saved.baselinePct || draft.sharing !== saved.sharing);
-  const ex = logic.data?.example;
 
   return (
     <Panel
@@ -47,7 +53,7 @@ export function AllocationLogic({ canEdit = false }: { canEdit?: boolean }) {
           </p>
           {canEdit ? (
             <div className="field-row">
-              <label className="field">
+              <label className="field" style={{ minWidth: 280 }}>
                 <span>Sharing when inventory is lower than forecast</span>
                 <select value={draft.sharing} onChange={(e) => setDraft({ ...draft, sharing: e.target.value as SharingMode })}>
                   {(Object.keys(SHARING_LABEL) as SharingMode[]).map((k) => (
@@ -90,37 +96,7 @@ export function AllocationLogic({ canEdit = false }: { canEdit?: boolean }) {
           )}
           {canEdit && !pctValid && <p className="hint danger">Baseline must be a whole number from 0 to 25.</p>}
 
-          {ex && (
-            <div className="grid-wrap">
-              <table className="grid">
-                <caption className="small muted">Worked example with the current settings: inventory {ex.inventory}</caption>
-                <thead>
-                  <tr>
-                    <th />
-                    {REGIONS.map((r) => (
-                      <th key={r}>{r}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td className="strong">Forecast</td>
-                    {REGIONS.map((r) => (
-                      <td key={r}>{ex.demand[r]}</td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <td className="strong">Auto allocation</td>
-                    {REGIONS.map((r) => (
-                      <td key={r} className="strong">
-                        {ex.allocation[r]}
-                      </td>
-                    ))}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          )}
+          <p className="small muted">{SHARING_HELP[draft.sharing]}</p>
           <details>
             <summary className="small">Rule text (allocation.drl)</summary>
             <pre className="mono small" style={{ overflow: 'auto', maxHeight: 420 }}>

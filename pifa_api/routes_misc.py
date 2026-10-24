@@ -447,22 +447,16 @@ class RuleConfigBody(BaseModel):
 
 @router.get("/rules/allocation")
 def allocation_logic(user: User = Depends(require_role(PLANNER, HEAD, ADMIN)), conn: Connection = Depends(get_db)):
-    """The allocation business logic as the Planner sees it (read-only): engine, current settings, the Drools rule text and a worked example.
+    """The allocation business logic as the Planner sees it (read-only): engine, current settings and the Drools rule text.
 
     Args:
         user: signed-in caller (from the JWT); Planner, Head of Sales or Admin.
         conn: database connection for this request.
 
     Returns:
-        {"engine", "drl", "config": {"baselinePct", "sharing"}, "example": {"inventory", "demand", "allocation"}} where the example
-        is computed by the active engine with the current settings.
+        {"engine", "drl", "config": {"baselinePct", "sharing"}}.
     """
-    config = store.get_rule_config(conn)
-    demand = {"North": 30, "South": 25, "East": 20, "West": 25}
-    result = clients.rules("allocation", {"mode": "ALLOCATE", "config": config,
-                                          "models": [{"product": "Example", "inventory": 50, "demand": demand}]})
-    return {**business_rules.allocation_logic(), "config": config,
-            "example": {"inventory": 50, "demand": demand, "allocation": {a["region"]: a["qty"] for a in result["allocations"]}}}
+    return {**business_rules.allocation_logic(), "config": store.get_rule_config(conn)}
 
 
 @router.put("/config/rules")
