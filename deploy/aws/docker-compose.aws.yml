@@ -1,0 +1,105 @@
+# PIFA on a single AWS EC2 server. Run from this folder after ./setup.sh has written .env:
+#   docker compose -f docker-compose.aws.yml up -d --build
+# Only Caddy (web) is reachable from the internet (ports 80/443); everything else stays on the private Docker network.
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pifa
+      POSTGRES_USER: pifa
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run ./setup.sh first}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pifa -d pifa"]
+      interval: 5s
+      retries: 30
+
+  keycloak:
+    build: ../../keycloak
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      JAVA_OPTS_KC_HEAP: "-Xms256m -Xmx1024m"
+      KC_DB_URL_HOST: postgres
+      KC_DB_URL_DATABASE: pifa
+      KC_DB_USERNAME: pifa
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KC_HOSTNAME: https://${AUTH_HOST}
+      KC_BOOTSTRAP_ADMIN_USERNAME: kcadmin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD}
+      PIFA_WEB_ORIGIN: https://${APP_HOST}
+      PIFA_SEED_PASSWORD: ${PIFA_SEED_PASSWORD}
+      PIFA_SVC_CLIENT_SECRET: ${SVC_CLIENT_SECRET}
+      PIFA_UPSTREAM_CLIENT_SECRET: ${UPSTREAM_CLIENT_SECRET}
+
+  sftp:
+    build: ../../sftp
+    restart: unless-stopped
+    environment:
+      SFTP_PUBLIC_KEY: ${SFTP_PUBLIC_KEY}
+    volumes: [sftpdata:/home]
+
+  files:
+    build: ../../files-svc
+    restart: unless-stopped
+    depends_on: [sftp, keycloak]
+    environment:
+      SFTP_HOST: sftp
+      SFTP_PRIVATE_KEY: ${SFTP_PRIVATE_KEY}
+      KEYCLOAK_ISSUER: https://${AUTH_HOST}/realms/printer-poc
+      KEYCLOAK_INTERNAL_URL: http://keycloak:8080
+      SVC_CLIENT_ID: printer-api-svc
+      SVC_CLIENT_SECRET: ${SVC_CLIENT_SECRET}
+      API_URL: http://api:8000
+      POLL_SECONDS: "60"
+
+  drools:
+    build:
+      context: ../..
+      dockerfile: drools/Dockerfile
+    restart: unless-stopped
+    environment:
+      KIE_USER: pifa
+      KIE_PASSWORD: ${DROOLS_PASSWORD}
+
+  api:
+    build:
+      context: ../..
+      dockerfile: deploy/aws/Dockerfile.api
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgresql://pifa:${POSTGRES_PASSWORD}@postgres:5432/pifa
+      KEYCLOAK_ISSUER: https://${AUTH_HOST}/realms/printer-poc
+      KEYCLOAK_INTERNAL_URL: http://keycloak:8080
+      KEYCLOAK_AUDIENCE: printer-api
+      SVC_CLIENT_ID: printer-api-svc
+      SVC_CLIENT_SECRET: ${SVC_CLIENT_SECRET}
+      FILES_URL: http://files:8080
+      DROOLS_URL: http://drools:8080
+      DROOLS_PASSWORD: ${DROOLS_PASSWORD}
+      ALLOWED_ORIGINS: https://${APP_HOST}
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/aws/Dockerfile.web
+      args:
+        VITE_KEYCLOAK_URL: https://${AUTH_HOST}
+    restart: unless-stopped
+    depends_on: [api, keycloak]
+    environment:
+      APP_HOST: ${APP_HOST}
+      AUTH_HOST: ${AUTH_HOST}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes: [caddy_data:/data, caddy_config:/config]
+
+volumes:
+  pgdata:
+  sftpdata:
+  caddy_data:
+  caddy_config:

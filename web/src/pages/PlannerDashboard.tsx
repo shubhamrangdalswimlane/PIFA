@@ -11,10 +11,11 @@ import { ProblemList } from '../components/Toast';
 import { Banner, Empty, Loading, Panel, QueryError, StatusChip, Tabs, VersionSwitch } from '../components/ui';
 import { currentFromMatrix, currentFromQty } from '../lib/excel';
 import { fmtTime } from '../lib/format';
+import { AllocationLogic } from '../components/AllocationLogic';
 import { ApiError } from '../api/client';
 import { REGIONS, type Region } from '../api/types';
 
-type Tab = 'inventory' | 'demand' | 'allocation' | 'files' | 'history';
+type Tab = 'inventory' | 'demand' | 'allocation' | 'files' | 'logic' | 'history';
 
 /**
  * Planner dashboard: tabs for inventory, demand vs inventory, allocation, ingested files and own change history.
@@ -42,6 +43,7 @@ export default function PlannerDashboard() {
           { value: 'demand', label: 'Demand vs Inventory' },
           { value: 'allocation', label: 'Allocation' },
           { value: 'files', label: 'Files' },
+          { value: 'logic', label: 'Allocation logic' },
           { value: 'history', label: 'History' },
         ]}
       />
@@ -49,6 +51,7 @@ export default function PlannerDashboard() {
       {tab === 'demand' && <DemandTab />}
       {tab === 'allocation' && <AllocationTab />}
       {tab === 'files' && <FilesTab />}
+      {tab === 'logic' && <AllocationLogic />}
       {tab === 'history' && (
         <Panel title="My change history" subtitle="Only the changes you made.">
           <AuditTable hideRoleFilter />

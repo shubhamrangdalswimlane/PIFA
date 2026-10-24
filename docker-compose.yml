@@ -59,6 +59,13 @@ services:
     ports: ["8082:8080"]
     extra_hosts: ["host.docker.internal:host-gateway"]
 
+  drools:
+    build: { context: ., dockerfile: drools/Dockerfile }
+    environment:
+      KIE_USER: pifa
+      KIE_PASSWORD: ${DROOLS_PASSWORD:-pifa-dev}
+    ports: ["8086:8080"]
+
 volumes:
   pgdata:
   sftpdata:

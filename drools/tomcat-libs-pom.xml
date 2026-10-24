@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Only used to download the transaction libraries that the KIE Server war needs in Tomcat's lib folder. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.pifa</groupId>
+  <artifactId>tomcat-libs</artifactId>
+  <version>1</version>
+  <packaging>pom</packaging>
+  <dependencies>
+    <dependency><groupId>org.jboss.integration</groupId><artifactId>narayana-tomcat</artifactId><version>1.0.0.Final</version></dependency>
+    <dependency><groupId>org.jboss.narayana.jta</groupId><artifactId>narayana-jta</artifactId><version>5.9.6.Final</version></dependency>
+    <dependency><groupId>org.jboss.spec.javax.transaction</groupId><artifactId>jboss-transaction-api_1.2_spec</artifactId><version>1.1.1.Final</version></dependency>
+    <dependency><groupId>org.slf4j</groupId><artifactId>slf4j-api</artifactId><version>1.7.36</version></dependency>
+  </dependencies>
+</project>

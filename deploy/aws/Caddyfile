@@ -1,0 +1,23 @@
+# One server, two host names (APP_HOST, AUTH_HOST). Caddy gets Let's Encrypt certificates for both automatically;
+# ports 80 and 443 must be reachable from the internet and both names must resolve to this server.
+
+{$APP_HOST} {
+	encode gzip
+
+	# API: same address as the web app, so no CORS needed.
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	# React app; unknown paths fall back to index.html (client-side routing).
+	handle {
+		root * /srv/web
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# Keycloak (sign-in). Caddy passes X-Forwarded-* headers; Keycloak runs with KC_PROXY_HEADERS=xforwarded.
+{$AUTH_HOST} {
+	reverse_proxy keycloak:8080
+}

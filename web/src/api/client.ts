@@ -25,6 +25,7 @@ import type {
   QtyChange,
   Region,
   RowError,
+  AllocationLogic,
   RuleConfig,
   RuleInfo,
   Summary,
@@ -478,12 +479,17 @@ export const api = {
    */
   ruleConfig: () => get<RuleConfig>('/config/rules'),
   /**
-   * Admin: saves new rule settings.
+   * The allocation logic: engine, Drools rule text, settings and a worked example (Planner, Head, Admin).
+   * @returns a Promise resolving to `AllocationLogic`
+   */
+  allocationLogic: () => get<AllocationLogic>('/rules/allocation'),
+  /**
+   * Admin or Head of Sales: saves new rule settings.
    * @param cfg - the new rule configuration
    * @param comment - required reason
    * @returns a Promise resolving to the saved `RuleConfig`
    */
-  putRuleConfig: (cfg: RuleConfig, comment: string) => put<RuleConfig>('/admin/rule-config', { ...cfg, comment }),
+  putRuleConfig: (cfg: RuleConfig, comment: string) => put<RuleConfig>('/config/rules', { ...cfg, comment }),
 };
 
 /**

@@ -224,3 +224,7 @@ Goal: all eight rules implemented in Python (`pifa_api/rules/`) and checked by t
 | PRD names Drools; the project uses no Java | Rules ported to Python with the same IDs, conditions and messages; agreed 23 Oct 2026 |
 | Allocation weighting rules may change | Baseline % and sharing mode in `rule_config`, editable by Admin |
 | One region blocks the cycle | Admin stage override, audited |
+
+## Decision 24 Oct 2026: allocation rules back on Drools
+
+R-ALLOC-01 (allocation maths) runs on a Drools KIE Server (`drools/`, rule text in `pifa_api/rules/allocation.drl`), called from the API with python-drools-sdk (`pifa_api/rules/drools_client.py`). Set `DROOLS_URL` to enable it; without it the same maths runs in Python (tests, Vercel without a KIE Server). Forecast, transfer and approval rules stay in Python. Default sharing is PROPORTIONAL (equal % cut). Admin and Head of Sales change the settings; the Planner sees the logic read-only.

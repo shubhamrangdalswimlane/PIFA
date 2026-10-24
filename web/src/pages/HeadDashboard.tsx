@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../api/client';
 import { useApiMutation, useCycle, useSummary, useTransfers } from '../api/hooks';
 import type { Summary, Transfer } from '../api/types';
+import { AllocationLogic } from '../components/AllocationLogic';
 import { AuditTable } from '../components/AuditTable';
 import { DataViews } from '../components/DataViews';
 import { CommentModal } from '../components/Modal';
@@ -9,7 +10,7 @@ import { TransferList } from '../components/TransferList';
 import { Banner, Loading, Panel, QueryError, Tabs } from '../components/ui';
 import { fmtQty } from '../lib/format';
 
-type Tab = 'data' | 'transfers' | 'audit';
+type Tab = 'data' | 'transfers' | 'logic' | 'audit';
 
 /**
  * Head of Sales dashboard: KPI cards, region comparison chart, read-only forecast / allocation data,
@@ -100,6 +101,7 @@ export default function HeadDashboard() {
         tabs={[
           { value: 'data', label: 'Forecast & allocation' },
           { value: 'transfers', label: `Transfers${summary.data ? ` (${summary.data.transfersPending} pending)` : ''}` },
+          { value: 'logic', label: 'Allocation logic' },
           { value: 'audit', label: 'Audit' },
         ]}
       />
@@ -142,6 +144,7 @@ export default function HeadDashboard() {
           />
         </Panel>
       )}
+      {tab === 'logic' && <AllocationLogic canEdit />}
       {tab === 'audit' && (
         <Panel title="Audit trail">
           <AuditTable />

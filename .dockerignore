@@ -1,0 +1,13 @@
+# Keep the root build context small (the AWS images build from the repository root).
+.git
+.venv
+.env
+.pytest_cache
+.ruff_cache
+**/node_modules
+**/__pycache__
+web/dist
+tests
+docs
+data_synthetic
+deploy/aws/.env

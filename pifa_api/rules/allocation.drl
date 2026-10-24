@@ -1,0 +1,122 @@
+package com.pifa.rules;
+
+/*
+ * PIFA allocation rules (R-ALLOC-01), run by the KIE Server.
+ *
+ * One Model fact per printer model comes in with its inventory, the regional forecasts (northDemand .. southDemand)
+ * and the settings chosen by the Admin or Head of Sales (sharing, baselinePct). The rules fill northAlloc .. southAlloc.
+ *
+ *   1. Forecast fits the inventory       -> every region gets exactly its forecast.
+ *   2. Forecast is above the inventory   -> PROPORTIONAL: every region is cut by the same percentage.
+ *                                           UNMET_DEMAND: every region first gets baselinePct of the inventory (never more
+ *                                           than its forecast), the rest is shared by what each region still wants.
+ *   3. Rounding left-over units          -> go to the largest fractional part, ties in North, East, West, South order.
+ *
+ * Example (PROPORTIONAL): forecast North 30, South 25, East 20, West 25 with inventory 50
+ *                         -> North 15, South 12, East 10, West 13.
+ */
+
+declare Model
+    id            : String
+    product       : String
+    inventory     : long
+    sharing       : String
+    baselinePct   : long
+    northDemand   : long
+    eastDemand    : long
+    westDemand    : long
+    southDemand   : long
+    northAlloc    : long
+    eastAlloc     : long
+    westAlloc     : long
+    southAlloc    : long
+    status        : String
+    ruleApplied   : String
+    pool          : long
+    totalWeight   : long
+    leftover      : long
+end
+
+declare Share
+    model     : String
+    region    : String
+    idx       : int
+    base      : long
+    weight    : long
+    extra     : long
+    rem       : long
+    computed  : boolean
+    awarded   : boolean
+end
+
+rule "R-ALLOC-01 forecast fits the inventory"
+    when
+        $m : Model(status == "NEW", northDemand + eastDemand + westDemand + southDemand <= inventory)
+    then
+        modify($m) {
+            setNorthAlloc($m.getNorthDemand()), setEastAlloc($m.getEastDemand()),
+            setWestAlloc($m.getWestDemand()), setSouthAlloc($m.getSouthDemand()),
+            setStatus("DONE"), setRuleApplied("FITS")
+        }
+end
+
+rule "R-ALLOC-01 inventory is short: open the shares"
+    when
+        $m : Model(status == "NEW", northDemand + eastDemand + westDemand + southDemand > inventory)
+    then
+        long cap = "UNMET_DEMAND".equals($m.getSharing()) ? $m.getInventory() * $m.getBaselinePct() / 100 : 0;
+        long n = Math.min(cap, $m.getNorthDemand()), e = Math.min(cap, $m.getEastDemand());
+        long w = Math.min(cap, $m.getWestDemand()),  s = Math.min(cap, $m.getSouthDemand());
+        insert(new Share($m.getId(), "North", 0, n, $m.getNorthDemand() - n, 0, 0, false, false));
+        insert(new Share($m.getId(), "East",  1, e, $m.getEastDemand()  - e, 0, 0, false, false));
+        insert(new Share($m.getId(), "West",  2, w, $m.getWestDemand()  - w, 0, 0, false, false));
+        insert(new Share($m.getId(), "South", 3, s, $m.getSouthDemand() - s, 0, 0, false, false));
+        modify($m) { setStatus("SHARE"), setRuleApplied($m.getSharing()) }
+end
+
+rule "R-ALLOC-01 pool left after the baselines"
+    when
+        $m : Model(status == "SHARE", $id : id, $inv : inventory)
+        accumulate(Share(model == $id, $b : base); $sumBase : sum($b))
+        accumulate(Share(model == $id, $w : weight); $sumWeight : sum($w))
+    then
+        modify($m) { setPool($inv - $sumBase.longValue()), setTotalWeight($sumWeight.longValue()), setStatus("PRORATE") }
+end
+
+rule "R-ALLOC-01 whole units by weight"
+    when
+        $m : Model(status == "PRORATE", $id : id, $pool : pool, $tw : totalWeight)
+        $s : Share(model == $id, computed == false)
+    then
+        modify($s) { setExtra($pool * $s.getWeight() / $tw), setRem($pool * $s.getWeight() % $tw), setComputed(true) }
+end
+
+rule "R-ALLOC-01 count the units left over"
+    when
+        $m : Model(status == "PRORATE", $id : id, $pool : pool)
+        not Share(model == $id, computed == false)
+        accumulate(Share(model == $id, $x : extra); $sumExtra : sum($x))
+    then
+        modify($m) { setLeftover($pool - $sumExtra.longValue()), setStatus("AWARD") }
+end
+
+rule "R-ALLOC-01 give a left-over unit to the largest fraction"
+    when
+        $m : Model(status == "AWARD", leftover > 0, $id : id)
+        $s : Share(model == $id, awarded == false, rem > 0, extra < weight, $r : rem, $i : idx)
+        not Share(model == $id, awarded == false, rem > 0, extra < weight, rem > $r || (rem == $r && idx < $i))
+    then
+        modify($s) { setExtra($s.getExtra() + 1), setAwarded(true) }
+        modify($m) { setLeftover($m.getLeftover() - 1) }
+end
+
+rule "R-ALLOC-01 collect the allocation"
+    when
+        $m : Model(status == "AWARD", leftover == 0, $id : id)
+        Share(model == $id, region == "North", $nb : base, $nx : extra)
+        Share(model == $id, region == "East",  $eb : base, $ex : extra)
+        Share(model == $id, region == "West",  $wb : base, $wx : extra)
+        Share(model == $id, region == "South", $sb : base, $sx : extra)
+    then
+        modify($m) { setNorthAlloc($nb + $nx), setEastAlloc($eb + $ex), setWestAlloc($wb + $wx), setSouthAlloc($sb + $sx), setStatus("DONE") }
+end

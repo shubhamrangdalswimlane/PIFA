@@ -37,6 +37,7 @@ export const qk = {
   health: ['admin', 'health'] as const,
   rules: ['rules', 'catalogue'] as const,
   ruleConfig: ['rules', 'config'] as const,
+  allocationLogic: ['rules', 'allocation'] as const,
 };
 
 /**
@@ -143,6 +144,15 @@ export const useHealth = () => useQuery({ queryKey: qk.health, queryFn: api.heal
  * @returns a React Query result with the rule list
  */
 export const useRulesCatalogue = () => useQuery({ queryKey: qk.rules, queryFn: api.rulesCatalogue, staleTime: 10 * 60_000 });
+/**
+ * Current rule configuration.
+ * @returns a React Query result with `RuleConfig`
+ */
+/**
+ * Allocation logic (Drools rule text, settings, worked example).
+ * @returns a React Query result with `AllocationLogic`
+ */
+export const useAllocationLogic = () => useQuery({ queryKey: qk.allocationLogic, queryFn: api.allocationLogic });
 /**
  * Current rule configuration.
  * @returns a React Query result with `RuleConfig`

@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     files_url: str = "http://localhost:8082"
     http_timeout: float = 10.0
 
+    # Drools KIE Server that runs the allocation rules (R-ALLOC-01). Empty = use the built-in Python copy of the same maths.
+    drools_url: str = ""
+    drools_user: str = "pifa"
+    drools_password: str = ""
+    drools_container: str = "pifa"
+
     allowed_origins: str = "http://localhost:5173"
 
     @property

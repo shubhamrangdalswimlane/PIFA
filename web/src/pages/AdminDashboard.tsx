@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
-import { useAdminUsers, useApiMutation, useCycle, useHealth, useRuleConfig, useRulesCatalogue } from '../api/hooks';
-import type { RuleConfig, SharingMode } from '../api/types';
+import { useAdminUsers, useApiMutation, useCycle, useHealth, useRulesCatalogue } from '../api/hooks';
+import { AllocationLogic } from '../components/AllocationLogic';
 import { AuditTable } from '../components/AuditTable';
 import { DataViews } from '../components/DataViews';
 import { StageTracker } from '../components/Layout';
@@ -180,7 +180,7 @@ function WorkflowTab() {
           {s === 5 && <span className="muted small">Stage 5 → 6 requires Head of Sales approval.</span>}
         </div>
       </Panel>
-      <RuleConfigPanel />
+      <AllocationLogic canEdit />
       <CommentModal
         open={!!action}
         title={action === 'reset' ? 'Reset cycle' : 'Advance stage'}
@@ -202,82 +202,11 @@ function WorkflowTab() {
   );
 }
 
-/**
- * Edits the auto-allocation rule settings (R-ALLOC-01): baseline % per region (whole number 0–100) and
- * how the remainder is shared (UNMET_DEMAND or PROPORTIONAL); saving needs a comment.
- * @returns the rendered configuration panel
- */
-function RuleConfigPanel() {
-  const cfg = useRuleConfig();
-  const [draft, setDraft] = useState<RuleConfig | null>(null);
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    if (cfg.data) setDraft(cfg.data);
-  }, [cfg.data]);
-  /**
-   * Saves the rule configuration (comment required).
-   */
-  const save = useApiMutation(({ c, comment }: { c: RuleConfig; comment: string }) => api.putRuleConfig(c, comment), 'Rule configuration saved');
-  const pctValid = draft !== null && Number.isInteger(draft.baselinePct) && draft.baselinePct >= 0 && draft.baselinePct <= 100;
-  const dirty = !!draft && !!cfg.data && (draft.baselinePct !== cfg.data.baselinePct || draft.sharing !== cfg.data.sharing);
-
-  return (
-    <Panel title="Allocation rule configuration" subtitle="Used by rule R-ALLOC-01 when the Planner auto-allocates.">
-      {cfg.isLoading && <Loading what="rule configuration" />}
-      {cfg.error && <QueryError error={cfg.error} />}
-      {draft && (
-        <div className="field-row">
-          <label className="field narrow">
-            <span>Baseline % per region</span>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step={1}
-              value={Number.isNaN(draft.baselinePct) ? '' : draft.baselinePct}
-              onChange={(e) => setDraft({ ...draft, baselinePct: e.target.value === '' ? NaN : Number(e.target.value) })}
-            />
-          </label>
-          <label className="field">
-            <span>Sharing of remainder</span>
-            <select value={draft.sharing} onChange={(e) => setDraft({ ...draft, sharing: e.target.value as SharingMode })}>
-              <option value="UNMET_DEMAND">UNMET_DEMAND — baseline, then share by unmet demand</option>
-              <option value="PROPORTIONAL">PROPORTIONAL — share inventory by demand</option>
-            </select>
-          </label>
-          <div className="field">
-            <span>&nbsp;</span>
-            <div className="button-row">
-              <button className="btn" disabled={!dirty} onClick={() => cfg.data && setDraft(cfg.data)}>
-                Discard
-              </button>
-              <button className="btn btn-primary" disabled={!dirty || !pctValid} onClick={() => setOpen(true)}>
-                Save…
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {draft && !pctValid && <p className="hint danger">Baseline must be a whole number from 0 to 100.</p>}
-      <CommentModal
-        open={open}
-        title="Save rule configuration"
-        onClose={() => setOpen(false)}
-        onSubmit={(comment) => save.mutateAsync({ c: draft!, comment })}
-      >
-        <p>
-          Baseline {draft?.baselinePct}% · sharing {draft?.sharing}
-        </p>
-      </CommentModal>
-    </Panel>
-  );
-}
-
 const HEALTH_LABEL: Record<string, string> = {
   api: 'API (FastAPI)',
   database: 'Database (PostgreSQL)',
   keycloak: 'Keycloak',
-  rules: 'Business rules (Python)',
+  rules: 'Business rules (Drools)',
   files: 'File service',
   sftp: 'SFTP',
 };

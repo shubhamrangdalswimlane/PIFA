@@ -14,8 +14,15 @@ violations, which the API turns into HTTP 422.
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
+from ..config import get_settings
+
+from . import drools_client
 from .allocation_math import PROPORTIONAL, REGIONS, UNMET_DEMAND, allocate
+from .drools_client import RulesEngineError
+
+ALLOCATION_DRL = Path(__file__).with_name("allocation.drl")
 
 PACKAGES = ("forecast", "allocation", "transfer", "approval")
 
@@ -23,8 +30,8 @@ CATALOGUE = [
     ("R-FC-01", "forecast", "Forecast, inventory and allocation quantities must be whole numbers greater than or equal to 0."),
     ("R-FC-02", "forecast", "Every forecast change needs a comment, and a Regional Manager revision needs a reason."),
     ("R-FC-03", "forecast", "A Regional Manager may approve or reject a regional forecast, and a rejection needs a comment."),
-    ("R-ALLOC-01", "allocation", "If demand fits inventory allocate the demand, otherwise give each region a configurable baseline "
-                                 "(default 25%, capped at demand) and share the rest by unmet demand."),
+    ("R-ALLOC-01", "allocation", "Run by Drools. If the forecast fits the inventory every region gets its forecast; otherwise every region "
+                                 "is cut by the same percentage (or gets a baseline % first and the rest by unmet forecast)."),
     ("R-ALLOC-02", "allocation", "The sum of regional allocations per model must not exceed available inventory."),
     ("R-XFER-01", "transfer", "A transfer moves a whole, positive quantity between two different valid regions, "
                               "not more than the source allocation, and needs a comment."),
@@ -243,6 +250,45 @@ def evaluate(package: str, payload: dict) -> dict:
     raise ValueError(f"Unknown rules package {package}")
 
 
+def _shares(models: list[dict], pct: float, sharing: str) -> list[dict]:
+    """R-ALLOC-01 arithmetic for several models: on the Drools KIE Server when DROOLS_URL is set, else the Python copy.
+
+    Args:
+        models: [{"product", "inventory", "demand": {region: qty}}] with valid quantities.
+        pct: baseline percent per region (UNMET_DEMAND only).
+        sharing: UNMET_DEMAND or PROPORTIONAL.
+
+    Returns:
+        One {region: units} dict per model, in order.
+
+    Raises:
+        RulesEngineError: when DROOLS_URL is set and the KIE Server fails (there is no silent fallback).
+    """
+    s = get_settings()
+    if not s.drools_url:
+        return [allocate(m["inventory"], m["demand"], pct, sharing) for m in models]
+    out = drools_client.allocate(models, sharing, int(pct), s.drools_url, s.drools_user, s.drools_password, s.drools_container)
+    return [{r: o[r] for r in REGIONS} for o in out]
+
+
+def engine_name() -> str:
+    """Name of the engine that computes R-ALLOC-01, for the dashboards.
+
+    Returns:
+        "Drools (KIE Server)" when DROOLS_URL is set, else "Python (built-in)".
+    """
+    return "Drools (KIE Server)" if get_settings().drools_url else "Python (built-in)"
+
+
+def allocation_logic() -> dict:
+    """The allocation rule source shown (read-only) to the Planner.
+
+    Returns:
+        {"engine": engine name, "drl": text of allocation.drl}.
+    """
+    return {"engine": engine_name(), "drl": ALLOCATION_DRL.read_text(encoding="utf-8")}
+
+
 def _evaluate_allocation(payload: dict) -> dict:
     """Evaluate the allocation package for every printer model.
 
@@ -271,7 +317,7 @@ def _evaluate_allocation(payload: dict) -> dict:
         raise ValueError("sharing must be UNMET_DEMAND or PROPORTIONAL")
 
     facts: list[tuple[str, dict]] = []
-    allocations: list[dict] = []
+    ready: list[dict] = []
     for m in payload.get("models") or []:
         demand, allocated = m.get("demand") or {}, m.get("allocated") or {}
         _check_regions(demand, "demand")
@@ -286,20 +332,26 @@ def _evaluate_allocation(payload: dict) -> dict:
             facts.append(("totals", {"product": product, "inventory": inventory or 0,
                                      "allocated": sum(v or 0 for v in allocated.values())}))
         elif whole_non_negative(inventory) and all(whole_non_negative(demand.get(r, 0)) for r in REGIONS):
-            # R-ALLOC-01: allocate inventory by demand (only when its inputs are valid; else R-FC-01 reports them).
-            shares = allocate(int(inventory), {r: int(demand.get(r, 0)) for r in REGIONS}, pct, sharing)
-            allocations += [{"product": product, "region": r, "qty": q} for r, q in shares.items()]
+            # R-ALLOC-01: only when its inputs are valid; otherwise R-FC-01 reports them.
+            ready.append({"product": product, "inventory": int(inventory), "demand": {r: int(demand.get(r, 0)) for r in REGIONS}})
+    allocations: list[dict] = []
+    for m, shares in zip(ready, _shares(ready, pct, sharing), strict=True):
+        allocations += [{"product": m["product"], "region": r, "qty": shares[r]} for r in REGIONS]
     return {"allocations": allocations, "violations": _fire("allocation", facts)}
 
 
 def self_test() -> tuple[bool, str]:
-    """Health check: the PRD worked example must allocate 25 per region.
+    """Health check: the worked example (forecast 30/20/25/25, inventory 50) must allocate 15/10/13/12 with the active engine.
 
     Returns:
-        (ok, detail): ok is True when the example allocates 25 per region without violations; detail summarises the
-        loaded rules or says the self-test failed.
+        (ok, detail): ok is True when the engine allocates as expected; detail names the engine or the failure.
     """
-    result = evaluate("allocation", {"mode": "ALLOCATE", "config": {"baselinePct": 25, "sharing": UNMET_DEMAND},
-                                     "models": [{"product": "Model A", "inventory": 100, "demand": dict.fromkeys(REGIONS, 25)}]})
-    ok = [a["qty"] for a in result["allocations"]] == [25, 25, 25, 25] and not result["violations"]
-    return ok, f"{len(RULES)} rule conditions, {len(CATALOGUE)} rules loaded" if ok else "self-test failed"
+    cfg = {"baselinePct": 25, "sharing": PROPORTIONAL}
+    model = {"product": "Model A", "inventory": 50, "demand": {"North": 30, "East": 20, "West": 25, "South": 25}}
+    try:
+        result = evaluate("allocation", {"mode": "ALLOCATE", "config": cfg, "models": [model]})
+    except RulesEngineError as e:
+        return False, str(e)[:200]
+    got = [a["qty"] for a in result["allocations"]]
+    ok = got == [15, 10, 13, 12] and not result["violations"]
+    return ok, f"{engine_name()}: {len(CATALOGUE)} rules, example allocates {got}" if ok else f"{engine_name()} self-test failed: {got}"

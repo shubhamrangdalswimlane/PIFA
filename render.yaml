@@ -83,6 +83,24 @@ services:
       - key: POLL_SECONDS
         value: "60"
 
+  # --- Drools KIE Server: runs the allocation rules (R-ALLOC-01). Public HTTPS because the API on Vercel calls it;
+  # --- protected by basic auth (KIE_PASSWORD). Needs 1 GB+ of memory.
+  - type: web
+    name: pifa-drools
+    runtime: docker
+    region: virginia
+    plan: standard
+    dockerContext: .
+    dockerfilePath: ./drools/Dockerfile
+    healthCheckPath: /kie-server/services/rest/server/healthcheck
+    envVars:
+      - key: PORT
+        value: "8080"
+      - key: KIE_USER
+        value: pifa
+      - key: KIE_PASSWORD
+        sync: false             # also set in Vercel as DROOLS_PASSWORD (DROOLS_URL = https://pifa-drools.onrender.com)
+
   # --- SFTP (private: reachable only from other Render services) --------------------------------
   - type: pserv
     name: pifa-sftp

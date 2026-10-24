@@ -80,12 +80,14 @@ def rules(package: str, payload: dict) -> dict:
         The rules result, e.g. {"violations": [...]}; the allocation package also returns "allocations".
 
     Raises:
-        HTTPException: 422 when the request itself is malformed (unknown package, region, mode or sharing).
+        HTTPException: 422 when the request itself is malformed (unknown package, region, mode or sharing); 503 when the Drools KIE Server fails.
     """
     try:
         return business_rules.evaluate(package, payload)
     except ValueError as e:
         raise HTTPException(422, f"Invalid rules request: {e}") from e
+    except business_rules.RulesEngineError as e:
+        raise HTTPException(503, str(e)) from e
 
 
 def enforce(package: str, payload: dict, message: str = "Business rule violated") -> dict:

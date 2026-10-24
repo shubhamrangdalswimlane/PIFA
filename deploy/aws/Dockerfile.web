@@ -1,0 +1,16 @@
+# Web app (React build) served by Caddy, which also gets the HTTPS certificates and proxies /api and Keycloak.
+# Build context: the repository root.
+FROM node:22-alpine AS build
+RUN npm install -g pnpm@10.34.7
+WORKDIR /app
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY web/ ./
+# Public Keycloak address, baked into the app at build time.
+ARG VITE_KEYCLOAK_URL
+ENV VITE_KEYCLOAK_URL=$VITE_KEYCLOAK_URL
+RUN pnpm build
+
+FROM caddy:2-alpine
+COPY --from=build /app/dist /srv/web
+COPY deploy/aws/Caddyfile /etc/caddy/Caddyfile

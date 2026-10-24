@@ -741,7 +741,7 @@ def get_rule_config(conn: Connection) -> dict:
         {"baselinePct": int, "sharing": "UNMET_DEMAND" | "PROPORTIONAL"}.
     """
     cfg = {r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM rule_config")}
-    return {"baselinePct": cfg.get("baselinePct", 25), "sharing": cfg.get("sharing", "UNMET_DEMAND")}
+    return {"baselinePct": cfg.get("baselinePct", 25), "sharing": cfg.get("sharing", "PROPORTIONAL")}
 
 
 # --- audit (append-only) ----------------------------------------------------------------------------
